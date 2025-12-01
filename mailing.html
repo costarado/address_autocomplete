@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>כתובת למשלוח</title>
+    <link rel="stylesheet" href="../../style.css">
+
+    <!-- Подключаем JS библиотеки -->
+    <script src="../../assets/js/google.js"></script>
+    <script src="../../assets/js/ui.js"></script>
+    <script src="../../assets/js/parser.js"></script>
+    <script src="../../assets/js/resolver.js"></script>
+
+    <!-- Локальная логика -->
+    <script defer src="../../mailing.js"></script>
+</head>
+
+<body>
+    <h2 class="title">בחר כתובת למשלוח</h2>
+
+    <input id="full_address" placeholder="התחל להקליד כתובת..." class="input big">
+
+    <input id="street" placeholder="רחוב" class="input">
+    <input id="house" placeholder="מספר בית" class="input">
+    <input id="city" placeholder="עיר" class="input">
+    <input id="zip" placeholder="מיקוד" class="input">
+
+    <button id="sendToCRM" class="btn">שלח ל-CRM</button>
+</body>
+</html>
