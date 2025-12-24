@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <title>Find Mailing Address</title>
+
+  <style>
+    body { font-family: Arial, sans-serif; padding: 10px; }
+    input { width: 100%; padding: 6px; margin-bottom: 8px; box-sizing: border-box; }
+    button { padding: 8px 12px; cursor: pointer; }
+  </style>
+
+  <!-- Google Maps Places API -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDAL5Dl_ZM0vyNkrn1fFw3b6Jhzek_MZxU&libraries=places&language=he"
+    async defer>
+  </script>
+
+  <!-- Zoho Embedded SDK -->
+  <script src="https://js.zohostatic.com/sdk/zoho-embedded-app-sdk.min.js"></script>
+</head>
+
+<body>
+  <h3>Find Mailing Address</h3>
+
+  <input id="search" placeholder="Search address (Google)" />
+  <input id="street" placeholder="Street" />
+  <input id="house" placeholder="House" />
+  <input id="city" placeholder="City" />
+  <input id="zip" placeholder="Zip" />
+
+  <button id="save">Save to Zoho</button>
+
+  <script>
+    let autocomplete = null;
+
+    function initAutocomplete() {
+      if (!window.google || !google.maps || !google.maps.places) return;
+
+      autocomplete = new google.maps.places.Autocomplete(
+        document.getElementById("search"),
+        { types: ["address"], componentRestrictions: { country: "il" } }
+      );
+
+      autocomplete.addListener("place_changed", () => {
+        const place = autocomplete.getPlace();
+        if (!place || !place.address_components) return;
+
+        let street = "", house = "", city = "", zip = "";
+
+        place.address_components.forEach(c => {
+          if (c.types.includes("route")) street = c.long_name;
+          if (c.types.includes("street_number")) house = c.long_name;
+          if (c.types.includes("locality")) city = c.long_name;
+          if (c.types.includes("postal_code")) zip = c.long_name;
+        });
+
+        document.getElementById("street").value = street;
+        document.getElementById("house").value = house;
+        document.getElementById("city").value = city;
+        document.getElementById("zip").value = zip;
+      });
+    }
+
+    window.addEventListener("load", () => {
+      const wait = setInterval(() => {
+        if (window.google && google.maps && google.maps.places) {
+          clearInterval(wait);
+          initAutocomplete();
+        }
+      }, 100);
+    });
+
+    ZOHO.embeddedApp.init();
+
+    document.getElementById("save").addEventListener("click", () => {
+      ZOHO.embeddedApp.fireEvent("naymark_mailing", {
+        street: document.getElementById("street").value,
+        house: document.getElementById("house").value,
+        city: document.getElementById("city").value,
+        zip: document.getElementById("zip").value
+      });
+    });
+  </script>
+</body>
+</html>
