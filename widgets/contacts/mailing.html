@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Find Address</title>
+  <style>
+    body{font-family:Arial;padding:16px}
+    label{display:block;margin-top:10px}
+    input{width:100%;padding:8px;margin-top:4px}
+    button{margin-top:14px;padding:10px 14px;cursor:pointer}
+    .msg{margin-top:12px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+
+  <h3 id="title">Find Address</h3>
+
+  <label>Search address (Google)</label>
+  <input id="address-input" placeholder="Start typing address..." />
+
+  <label>Street</label>
+  <input id="street" />
+
+  <label>House</label>
+  <input id="house" />
+
+  <label>City</label>
+  <input id="city" />
+
+  <label>Zip</label>
+  <input id="zip" />
+
+  <button id="saveBtn">Save to Zoho</button>
+  <div class="msg" id="msg"></div>
+
+  <!-- ваши текущие файлы -->
+  <script src="./ui.js"></script>
+  <script src="./parser.js"></script>
+  <script src="./resolver.js"></script>
+  <script src="./google.js"></script>
+
+  <!-- главный скрипт -->
+  <script src="./main.js"></script>
+</body>
+</html>
