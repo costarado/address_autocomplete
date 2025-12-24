@@ -1,0 +1,12 @@
+/* ====== NAYMARK STYLES ====== */
+body, html { font-family: Arial, sans-serif; background:#fff; color:#222; margin:0; padding:0; }
+.nm-btn { background:#111; color:#fff; border:none; border-radius:6px; padding:8px 12px; cursor:pointer; }
+.nm-btn:hover { opacity:.9; }
+
+/* Widget shells */
+.nm-preview { margin-top:12px; }
+.preview-box { display:flex; gap:12px; align-items:flex-start; }
+.map-box iframe { border:none; border-radius:10px; }
+
+/* Containers used in widgets */
+#mailing_widget, #other_widget { padding:10px; }
