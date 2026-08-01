@@ -1,5 +1,5 @@
 /**
- * Optional IL address reference via Supabase RPC.
+ * Optional IL address reference via existing Supabase zip_merge RPC.
  * Fail-open: any miss/error returns original payload unchanged.
  */
 
@@ -17,6 +17,12 @@ function parseHouseNumber(house) {
 
 function trimStr(v) {
   return String(v || "").trim();
+}
+
+function padHouse(house) {
+  const n = parseHouseNumber(house);
+  if (n == null) return null;
+  return String(n).padStart(5, "0");
 }
 
 /**
@@ -39,8 +45,10 @@ async function enrichAddressPayload(payload, env = process.env) {
     reason: "disabled",
     source_zip: input.zip,
     ref_zip: null,
+    ref_zip5: null,
     ref_city: null,
     ref_street: null,
+    ref_house: null,
   };
 
   if (!flagEnabled(env.ADDRESS_REF_ENABLED)) {
@@ -62,10 +70,8 @@ async function enrichAddressPayload(payload, env = process.env) {
     return { payload: { ...payload, ...input }, meta };
   }
 
-  const house = parseHouseNumber(input.house);
-
   try {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/lookup_postal_code`, {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/lookup_zip_merge`, {
       method: "POST",
       headers: {
         apikey: serviceKey,
@@ -75,7 +81,7 @@ async function enrichAddressPayload(payload, env = process.env) {
       body: JSON.stringify({
         p_city: input.city,
         p_street: input.street,
-        p_house: house,
+        p_house: input.house || null,
       }),
     });
 
@@ -86,21 +92,25 @@ async function enrichAddressPayload(payload, env = process.env) {
 
     const rows = await resp.json();
     const row = Array.isArray(rows) ? rows[0] : null;
+    const zip7 = row?.zip7 != null ? String(row.zip7) : "";
+    const zip5 = row?.zip5 != null ? String(row.zip5) : "";
+    const refZip = zip7 || zip5;
 
-    if (!row || !row.postal_code) {
+    if (!row || !refZip) {
       meta.reason = "no_match";
       return { payload: { ...payload, ...input }, meta };
     }
 
     meta.hit = true;
-    meta.ref_zip = String(row.postal_code).trim();
-    meta.ref_city = row.city_he || null;
-    meta.ref_street = row.street_he || null;
+    meta.ref_zip = refZip;
+    meta.ref_zip5 = zip5 || null;
+    meta.ref_city = row.location_name || null;
+    meta.ref_street = row.street_name || null;
+    meta.ref_house = row.house_number || padHouse(input.house);
 
     const enriched = { ...payload, ...input };
     const applyNames = flagEnabled(env.ADDRESS_REF_APPLY_NAMES);
 
-    // Always prefer reference zip when we have a hit (main reason for this layer).
     if (meta.ref_zip && meta.ref_zip !== input.zip) {
       enriched.zip = meta.ref_zip;
       meta.applied = true;
@@ -128,5 +138,6 @@ async function enrichAddressPayload(payload, env = process.env) {
 module.exports = {
   enrichAddressPayload,
   parseHouseNumber,
+  padHouse,
   flagEnabled,
 };

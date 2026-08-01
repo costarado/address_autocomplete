@@ -1,5 +1,7 @@
--- Naymark address reference (IL streets + postal codes)
--- Safe to run in a fresh Supabase project. Does not touch Zoho/Netlify clients.
+-- OPTIONAL / unused for costarado project.
+-- Production already has public.zip_merge (~515k rows).
+-- Prefer: supabase/lookup_zip_merge.sql (RPC over zip_merge).
+-- Keep this file only if you need a greenfield cities/streets schema.
 
 create extension if not exists unaccent;
 create extension if not exists pg_trgm;
