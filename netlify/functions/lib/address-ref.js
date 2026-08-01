@@ -58,7 +58,10 @@ async function enrichAddressPayload(payload, env = process.env) {
   meta.enabled = true;
 
   const supabaseUrl = trimStr(env.SUPABASE_URL).replace(/\/$/, "");
-  const serviceKey = trimStr(env.SUPABASE_SERVICE_ROLE_KEY);
+  // Prefer a freshly created key if the original Netlify secret var is stuck/uneditable.
+  const serviceKey = trimStr(
+    env.SUPABASE_SECRET_KEY || env.SUPABASE_SERVICE_ROLE_KEY
+  );
 
   if (!supabaseUrl || !serviceKey) {
     meta.reason = "missing_supabase_env";
