@@ -1,6 +1,9 @@
 # Naymark_Contacts_Mailing_Resol — Detail Approve fix
 
-Replace only `main.js` in the Zoho Sigma widget, then Publish.
+Upload zip: `../Naymark_Contacts_Mailing_Resol_DETAIL_FIX.zip`  
+(Index Page = `app/widget.html`)
 
-Approve on Contact **Detail** now uses `updateRecord` (EntityId array unwrapped).
-No Netlify/Supabase deploy required for this fix.
+Or replace only `main.js`, then Publish.
+
+Approve on Contact **Detail** uses `updateRecord` (EntityId array unwrapped).  
+Create/Edit still uses `populate`.
