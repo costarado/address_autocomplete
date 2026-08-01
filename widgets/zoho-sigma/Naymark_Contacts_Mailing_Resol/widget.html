@@ -13,9 +13,11 @@
     label { font-size: 12px; color: #465; display:block; margin:0 0 6px; }
     input, select, button { width:100%; box-sizing:border-box; padding:10px 10px; border:1px solid #d6d9de; border-radius:10px; background:#fff; font-size: 14px; }
     button { border:0; background:#1f6fff; color:#fff; cursor:pointer; }
+    button.secondary { background:#3a4a6a; }
     button:disabled { opacity:.55; cursor:not-allowed; }
     #status { font-size: 12px; color:#3a4a6a; }
     .hint { font-size: 11px; color:#7a8899; margin-top:4px; }
+    #copyRow { display: none; }
   </style>
 
   <script src="https://live.zwidgets.com/js-sdk/1.5/ZohoEmbededAppSDK.min.js"></script>
@@ -88,6 +90,13 @@
     <div class="row">
       <div class="col"><label>Apt</label><input id="apt" type="text" placeholder="manual" /></div>
       <div class="col"><label>Country</label><input id="country" type="text" /></div>
+    </div>
+
+    <div class="row" id="copyRow">
+      <div class="col">
+        <button id="btn_copy_contact" type="button" class="secondary">Copy address from Contact → Order</button>
+        <div class="hint">Mailing → Billing, Other → Shipping. Saves to this Sales Order.</div>
+      </div>
     </div>
 
     <div class="row">

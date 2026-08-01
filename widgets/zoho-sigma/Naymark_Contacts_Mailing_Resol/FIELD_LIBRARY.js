@@ -9,6 +9,7 @@
  * Важно:
  * - Для некоторых полей могут быть разные API-name в разных модулях (например Entry(H)).
  *   Поэтому тут кандидаты в виде массива: выбирай тот, который реально существует.
+ * - В Zoho REST/Widget API модуль заказов = "Sales_Orders" (не "SalesOrders").
  */
 
 (function (w) {
@@ -47,10 +48,10 @@
         street_en: ["Billing_Street_E"],
         city_he:   ["Billing_City"],
         city_en:   ["Billing_City_E"],
-        house:     ["House"],
-        entry_he:  ["Entry_H"],
-        entry_en:  ["Entry_E"],
-        apt:       ["Apt"],
+        house:     ["Billing_House", "House"],
+        entry_he:  ["Billing_Entry_H", "Billing_Entry", "Entry_H", "Entry"],
+        entry_en:  ["Billing_Entry_E", "Entry_E"],
+        apt:       ["Billing_Apt", "Billing_APT", "Apt"],
         zip:       ["Billing_Code", "Billing_Zip"],
         country:   ["Billing_Country"],
       },
@@ -61,14 +62,38 @@
         city_he:   ["Shipping_City"],
         city_en:   ["Shipping_City_E"],
         house:     ["Shipping_House"],
-        entry_he:  ["Shipping_Entry_H"],
+        entry_he:  ["Shipping_Entry_H", "Shipping_Entry"],
         entry_en:  ["Shipping_Entry_E"],
-        apt:       ["Shipping_APT"],
+        apt:       ["Shipping_APT", "Shipping_Apt"],
         zip:       ["Shipping_Code", "Shipping_Zip"],
         country:   ["Shipping_Country"],
       },
     },
   };
+
+  // Lookup fields on Sales Order that may point to the Contact
+  const SO_CONTACT_LOOKUP_CANDIDATES = [
+    "Contact_Name",
+    "Contact",
+    "Contacts",
+    "Billing_Contact",
+    "Customer",
+  ];
+
+  function normalizeModule(name) {
+    const s = String(name || "").trim();
+    if (!s) return "Contacts";
+    if (/^sales[_\s]?orders?$/i.test(s) || s === "SalesOrders") return "SalesOrders";
+    if (/^contacts?$/i.test(s)) return "Contacts";
+    return s;
+  }
+
+  /** Entity string for ZOHO.CRM.API / META (Sales_Orders, not SalesOrders). */
+  function apiEntity(moduleName) {
+    const m = normalizeModule(moduleName);
+    if (m === "SalesOrders") return "Sales_Orders";
+    return m;
+  }
 
   function detectContext() {
     const file = (location.pathname.split("/").pop() || "").toLowerCase();
@@ -79,15 +104,65 @@
     return { module: "Contacts", target: "mailing" };
   }
 
+  /**
+   * Detect module/target from Zoho widget PageLoad payload.
+   * Custom buttons usually send Entity + EntityId (+ sometimes ButtonName).
+   */
+  function detectContextFromPageLoad(data) {
+    const d = data || {};
+    const rawEntity =
+      d.Entity ||
+      d.entity ||
+      d.Module ||
+      d.module ||
+      (d.data && (d.data.Entity || d.data.module)) ||
+      "";
+    const moduleName = normalizeModule(rawEntity);
+
+    const blob = [
+      d.ButtonName,
+      d.buttonName,
+      d.Button_Name,
+      d.action,
+      d.Action,
+      typeof d === "object" ? JSON.stringify(d) : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    let target;
+    if (moduleName === "SalesOrders") {
+      if (blob.includes("ship")) target = "shipping";
+      else if (blob.includes("bill")) target = "billing";
+      else target = "billing";
+    } else {
+      if (blob.includes("other")) target = "other";
+      else if (blob.includes("mail")) target = "mailing";
+      else target = "mailing";
+    }
+
+    // Filename fallback if Entity missing
+    if (!rawEntity) {
+      const fileCtx = detectContext();
+      return fileCtx;
+    }
+    return { module: moduleName, target };
+  }
+
   function getMapping(moduleName, target) {
-    const m = FIELD_LIBRARY[moduleName];
+    const m = FIELD_LIBRARY[normalizeModule(moduleName)];
     if (!m) return null;
     return m[target] || null;
   }
 
   w.NAYMARK_FIELD_LIB = {
     FIELD_LIBRARY,
+    SO_CONTACT_LOOKUP_CANDIDATES,
+    normalizeModule,
+    apiEntity,
     detectContext,
+    detectContextFromPageLoad,
     getMapping,
   };
 })(window);

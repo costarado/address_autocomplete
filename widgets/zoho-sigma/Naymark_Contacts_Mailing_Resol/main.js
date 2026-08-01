@@ -40,8 +40,28 @@ const UI = {
     country: $('country'),
 
     approve: $('btn_approve'),
+    copyContact: $('btn_copy_contact'),
+    copyRow: $('copyRow'),
     status: $('status'),
   };
+
+  function lib() {
+    return window.NAYMARK_FIELD_LIB || null;
+  }
+
+  function normalizeModule(name) {
+    if (lib()?.normalizeModule) return lib().normalizeModule(name);
+    const s = String(name || '').trim();
+    if (/sales/i.test(s)) return 'SalesOrders';
+    return s || 'Contacts';
+  }
+
+  /** Zoho API entity: Sales_Orders vs UI key SalesOrders */
+  function apiEntity(moduleName) {
+    if (lib()?.apiEntity) return lib().apiEntity(moduleName);
+    const m = normalizeModule(moduleName);
+    return m === 'SalesOrders' ? 'Sales_Orders' : m;
+  }
 
   function setStatus(msg, kind = 'info') {
     if (!UI.status) return;
@@ -81,15 +101,25 @@ const UI = {
     ];
   }
 
-  function defaultContext() {
-    // If FIELD_LIBRARY provides detection (for legacy entry filenames), use it.
+  function defaultContext(pageData) {
     try {
-      if (window.NAYMARK_FIELD_LIB && typeof window.NAYMARK_FIELD_LIB.detectContext === 'function') {
-        const c = window.NAYMARK_FIELD_LIB.detectContext();
+      const L = lib();
+      if (L && typeof L.detectContextFromPageLoad === 'function' && pageData) {
+        const c = L.detectContextFromPageLoad(pageData);
+        if (c && c.module && c.target) return c;
+      }
+      if (L && typeof L.detectContext === 'function') {
+        const c = L.detectContext();
         if (c && c.module && c.target) return c;
       }
     } catch (_) {}
     return { module: 'Contacts', target: 'mailing' };
+  }
+
+  function syncCopyButtonVisibility() {
+    if (!UI.copyRow) return;
+    const isSO = normalizeModule(getEntity()) === 'SalesOrders';
+    UI.copyRow.style.display = isSO ? '' : 'none';
   }
 
   function renderModuleAndTargets(ctx) {
@@ -104,7 +134,7 @@ const UI = {
       UI.module.appendChild(opt);
     });
 
-    UI.module.value = (ctx.module === 'Sales_Orders') ? 'SalesOrders' : (ctx.module || 'Contacts');
+    UI.module.value = normalizeModule(ctx.module || 'Contacts');
 
     const renderTargets = () => {
       const selected = UI.target.value || ctx.target;
@@ -118,6 +148,7 @@ const UI = {
       // keep selected if still valid
       const ok = Array.from(UI.target.options).some(o => o.value === selected);
       UI.target.value = ok ? selected : (UI.target.options[0] ? UI.target.options[0].value : '');
+      syncCopyButtonVisibility();
     };
 
     renderTargets();
@@ -125,6 +156,7 @@ const UI = {
     UI.module.addEventListener('change', () => {
       renderTargets();
       clearUIFields();
+      syncCopyButtonVisibility();
       setStatus('Context changed. Search address.');
     });
 
@@ -147,18 +179,19 @@ const UI = {
   }
 
   async function getMetaSet(entity) {
-    if (metaCache.has(entity)) return metaCache.get(entity);
+    const api = apiEntity(entity);
+    if (metaCache.has(api)) return metaCache.get(api);
 
     try {
-      const meta = await ZOHO.CRM.META.getFields({ Entity: entity });
+      const meta = await ZOHO.CRM.META.getFields({ Entity: api });
       const fields = (meta && meta.fields) ? meta.fields : [];
       const s = new Set();
       fields.forEach((f) => { if (f && f.api_name) s.add(f.api_name); });
-      metaCache.set(entity, s);
+      metaCache.set(api, s);
       return s;
     } catch (_) {
       const s = new Set();
-      metaCache.set(entity, s);
+      metaCache.set(api, s);
       return s;
     }
   }
@@ -170,8 +203,8 @@ const UI = {
     for (const c of candidates) {
       if (metaSet.has(c)) return c;
     }
-    // Fallback: first candidate (layout may hide field from META in some orgs)
-    return candidates[0] || null;
+    // Do not invent API names that META does not list (causes INVALID_DATA on SO).
+    return null;
   }
 
   function getMapping(entity, target) {
@@ -232,7 +265,7 @@ const UI = {
 
     // Detail view: populate() does NOT persist. Use updateRecord when we have an id.
     const recordId = getRecordId();
-    const entity = getEntity();
+    const entity = apiEntity(getEntity());
     if (recordId && ZOHO?.CRM?.API?.updateRecord) {
       const apiData = Object.assign({ id: recordId }, payload);
       console.log('Naymark updateRecord', entity, recordId, payload);
@@ -254,6 +287,151 @@ const UI = {
 
     // Create / Edit form: fill fields in the open UI form.
     await ZOHO.CRM.UI.Record.populate(payload);
+  }
+
+  function unwrapLookupId(val) {
+    if (val == null || val === '') return null;
+    if (Array.isArray(val)) return unwrapLookupId(val[0]);
+    if (typeof val === 'object') {
+      const id = val.id || val.ID || val.contact_id || val.Contact_Id;
+      return id != null ? String(id).trim() : null;
+    }
+    const s = String(val).trim();
+    return s || null;
+  }
+
+  function firstExistingApi(candidates, metaSet) {
+    return pickExisting(candidates, metaSet);
+  }
+
+  function readMappedValues(record, mapping, metaSet) {
+    const out = {};
+    if (!record || !mapping) return out;
+    Object.keys(mapping).forEach((logicalKey) => {
+      const api = firstExistingApi(mapping[logicalKey], metaSet);
+      if (!api) return;
+      let v = record[api];
+      if (v == null) v = '';
+      if (typeof v === 'object') v = v.name || v.display_value || '';
+      v = trim(v);
+      if (v && v.toLowerCase() !== 'manual') out[logicalKey] = v;
+    });
+    return out;
+  }
+
+  function buildPayloadFromLogical(mapping, values, metaSet, { includeEmpty }) {
+    const payload = {};
+    if (!mapping) return payload;
+    Object.keys(mapping).forEach((logicalKey) => {
+      const api = firstExistingApi(mapping[logicalKey], metaSet);
+      if (!api) return;
+      const v = values[logicalKey] ?? '';
+      if (includeEmpty) payload[api] = v;
+      else if (v) payload[api] = v;
+    });
+    return payload;
+  }
+
+  async function resolveContactIdFromSalesOrder(orderId) {
+    const soEntity = 'Sales_Orders';
+    const res = await ZOHO.CRM.API.getRecord({ Entity: soEntity, RecordID: orderId });
+    const rec = res?.data?.[0] || res?.data || res;
+    if (!rec) throw new Error('Sales Order not found');
+
+    const soMeta = await getMetaSet('SalesOrders');
+    const candidates = (lib()?.SO_CONTACT_LOOKUP_CANDIDATES) || ['Contact_Name', 'Contact'];
+    for (const api of candidates) {
+      if (soMeta.size && !soMeta.has(api) && !rec[api]) continue;
+      const cid = unwrapLookupId(rec[api]);
+      if (cid) return { contactId: cid, order: rec, lookupField: api };
+    }
+    // last resort: scan record keys
+    for (const k of Object.keys(rec)) {
+      if (!/contact/i.test(k)) continue;
+      const cid = unwrapLookupId(rec[k]);
+      if (cid) return { contactId: cid, order: rec, lookupField: k };
+    }
+    throw new Error('No Contact linked on this Sales Order (Contact_Name empty)');
+  }
+
+  async function copyAddressFromContact() {
+    try {
+      if (normalizeModule(getEntity()) !== 'SalesOrders') {
+        setStatus('Switch Module to SalesOrders to copy from Contact.', 'error');
+        return;
+      }
+      const orderId = getRecordId();
+      if (!orderId) {
+        setStatus('No Sales Order id — open from order Detail button.', 'error');
+        return;
+      }
+
+      setStatus('Loading Contact address...', 'info');
+      const { contactId, lookupField } = await resolveContactIdFromSalesOrder(orderId);
+      console.log('Naymark copy: contact via', lookupField, contactId);
+
+      const cRes = await ZOHO.CRM.API.getRecord({ Entity: 'Contacts', RecordID: contactId });
+      const contact = cRes?.data?.[0] || cRes?.data || cRes;
+      if (!contact) throw new Error('Contact not found');
+
+      const contactMeta = await getMetaSet('Contacts');
+      const soMeta = await getMetaSet('SalesOrders');
+      const mailMap = getMapping('Contacts', 'mailing');
+      const otherMap = getMapping('Contacts', 'other');
+      const billMap = getMapping('SalesOrders', 'billing');
+      const shipMap = getMapping('SalesOrders', 'shipping');
+
+      const mailing = readMappedValues(contact, mailMap, contactMeta);
+      const other = readMappedValues(contact, otherMap, contactMeta);
+
+      const payload = Object.assign(
+        {},
+        buildPayloadFromLogical(billMap, mailing, soMeta, { includeEmpty: false }),
+        buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false })
+      );
+
+      // If Other is empty, also copy mailing → shipping so order is not half-blank
+      if (Object.keys(buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false })).length === 0) {
+        Object.assign(payload, buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false }));
+      }
+
+      if (!Object.keys(payload).length) {
+        setStatus('Contact has no mailing/other address fields to copy.', 'error');
+        return;
+      }
+
+      // Fill widget UI from mailing (or current target)
+      const uiVals = getTarget() === 'shipping'
+        ? (Object.keys(other).length ? other : mailing)
+        : mailing;
+      if (UI.streetHe) UI.streetHe.value = uiVals.street_he || '';
+      if (UI.streetEn) UI.streetEn.value = uiVals.street_en || '';
+      if (UI.cityHe) UI.cityHe.value = uiVals.city_he || '';
+      if (UI.cityEn) UI.cityEn.value = uiVals.city_en || '';
+      if (UI.house) UI.house.value = uiVals.house || '';
+      if (UI.zip) UI.zip.value = uiVals.zip || '';
+      if (UI.entryHe) UI.entryHe.value = uiVals.entry_he || '';
+      if (UI.entryEn) UI.entryEn.value = uiVals.entry_en || '';
+      if (UI.apt) UI.apt.value = uiVals.apt || '';
+      if (UI.country) UI.country.value = uiVals.country || '';
+      setApproveEnabled();
+
+      console.log('Naymark copy payload', payload);
+      await populateZoho(payload);
+      setStatus(
+        `Copied ${Object.keys(payload).length} fields from Contact (${lookupField}). F5 if card looks empty.`,
+        'ok'
+      );
+
+      await new Promise((r) => setTimeout(r, 400));
+      try {
+        if (ZOHO?.CRM?.UI?.Popup?.closeReload) return await ZOHO.CRM.UI.Popup.closeReload();
+        if (ZOHO?.CRM?.UI?.Popup?.close) return await ZOHO.CRM.UI.Popup.close();
+      } catch (_) {}
+    } catch (e) {
+      console.error(e);
+      setStatus('Copy failed: ' + (e && e.message ? e.message : e), 'error');
+    }
   }
 
   async function clearZohoFieldsForCurrentContext() {
@@ -972,18 +1150,22 @@ const UI = {
   ZOHO.embeddedApp.on('PageLoad', (data) => {
     try {
       pageLoadData = data || null;
-      renderModuleAndTargets(defaultContext());
+      const ctx = defaultContext(pageLoadData);
+      renderModuleAndTargets(ctx);
       clearUIFields();
       bindValueChangeEnablers();
       initAutocomplete();
+      syncCopyButtonVisibility();
 
       UI.approve.addEventListener('click', approveAndClose);
+      if (UI.copyContact) UI.copyContact.addEventListener('click', copyAddressFromContact);
 
       const rid = getRecordId();
-      console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid);
+      const ent = apiEntity(getEntity());
+      console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid, 'entity=', ent, 'ctx=', ctx);
       setStatus(
         rid
-          ? `Ready. Detail save ON (id ${rid}). Search address, then Approve.`
+          ? `Ready. ${ent} save ON (id ${rid}). Target: ${getTarget()}. Search or Copy from Contact.`
           : 'Ready. No record id — Approve will only populate Edit/Create form.',
         'info'
       );
