@@ -1,9 +1,8 @@
 # Naymark_Contacts_Mailing_Resol — Detail Approve fix
 
-Upload zip: `../Naymark_Contacts_Mailing_Resol_DETAIL_FIX.zip`  
-(Index Page = `app/widget.html`)
+**Index Page in Zoho:** `widget.html` (без `app/`)
 
-Or replace only `main.js`, then Publish.
+Upload: `../Naymark_Contacts_Mailing_Resol_DETAIL_FIX_FLAT.zip`
 
 Approve on Contact **Detail** uses `updateRecord` (EntityId array unwrapped).  
 Create/Edit still uses `populate`.
