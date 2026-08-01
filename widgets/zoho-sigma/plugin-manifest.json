@@ -1,0 +1,15 @@
+{
+  "service": "CRM",
+  "cspDomains": {
+    "connect-src": [
+      "https://maps.googleapis.com",
+      "https://maps.gstatic.com",
+      "https://*.googleapis.com",
+      "https://*.gstatic.com",
+      "https://*.supabase.co",
+      "https://*.zoho.com",
+      "https://*.zohostatic.com",
+      "https://live.zwidgets.com"
+    ]
+  }
+}

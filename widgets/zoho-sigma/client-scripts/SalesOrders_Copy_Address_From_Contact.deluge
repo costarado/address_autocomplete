@@ -1,0 +1,205 @@
+/*
+ * Zoho CRM — Custom Function for Sales Orders button
+ * "Copy address from Contact" (Mailing→Billing, Other→Shipping)
+ *
+ * Setup:
+ * 1. Setup → Developer Space → Functions → New Function (Deluge)
+ *    Category: Button, Module: Sales Orders
+ * 2. Paste this code. Argument name must be: salesorderId (Int) OR use salesorder map.
+ * 3. Setup → Modules → Sales Orders → Links and Buttons → edit your Copy button
+ *    → Action: Functions → select this function → pass Sales Order Id
+ * 4. Save.
+ *
+ * If your button already opens a Widget and "does nothing", re-point it to this Function
+ * OR open the Find Address widget and use "Copy address from Contact → Order".
+ */
+
+void automation.Copy_Address_From_Contact(Int salesorderId)
+{
+	so = zoho.crm.getRecordById("Sales_Orders", salesorderId);
+	if(so == null)
+	{
+		return;
+	}
+
+	contactId = null;
+	cn = so.get("Contact_Name");
+	if(cn != null)
+	{
+		contactId = ifnull(cn.get("id"), null);
+	}
+	if(contactId == null)
+	{
+		c2 = so.get("Contact");
+		if(c2 != null)
+		{
+			contactId = ifnull(c2.get("id"), null);
+		}
+	}
+	if(contactId == null)
+	{
+		info "Copy_Address_From_Contact: no Contact on SO " + salesorderId;
+		return;
+	}
+
+	c = zoho.crm.getRecordById("Contacts", contactId);
+	if(c == null)
+	{
+		return;
+	}
+
+	upd = Map();
+
+	// Mailing → Billing
+	if(ifnull(c.get("Mailing_Street"), "") != "")
+	{
+		upd.put("Billing_Street", c.get("Mailing_Street"));
+	}
+	if(ifnull(c.get("Mailing_Street_E"), "") != "")
+	{
+		upd.put("Billing_Street_E", c.get("Mailing_Street_E"));
+	}
+	if(ifnull(c.get("Mailing_City"), "") != "")
+	{
+		upd.put("Billing_City", c.get("Mailing_City"));
+	}
+	if(ifnull(c.get("Mailing_City_E"), "") != "")
+	{
+		upd.put("Billing_City_E", c.get("Mailing_City_E"));
+	}
+	if(ifnull(c.get("Mailing_Zip"), "") != "")
+	{
+		upd.put("Billing_Code", c.get("Mailing_Zip"));
+	}
+	if(ifnull(c.get("Mailing_Country"), "") != "")
+	{
+		upd.put("Billing_Country", c.get("Mailing_Country"));
+	}
+	house = ifnull(c.get("House"), "");
+	if(house != "")
+	{
+		// Prefer Billing_House when present in your org; otherwise skip shared House
+		upd.put("Billing_House", house);
+	}
+	entryH = ifnull(c.get("Entry_H"), ifnull(c.get("Entry"), ""));
+	if(entryH != "" && entryH.toLowerCase() != "manual")
+	{
+		upd.put("Billing_Entry_H", entryH);
+	}
+	entryE = ifnull(c.get("Entry_E"), "");
+	if(entryE != "" && entryE.toLowerCase() != "manual")
+	{
+		upd.put("Billing_Entry_E", entryE);
+	}
+	apt = ifnull(c.get("Apt"), "");
+	if(apt != "" && apt.toLowerCase() != "manual")
+	{
+		upd.put("Billing_Apt", apt);
+	}
+
+	// Other → Shipping (fallback: mailing → shipping)
+	useOther = false;
+	if(ifnull(c.get("Other_Street"), "") != "" || ifnull(c.get("Other_City"), "") != "")
+	{
+		useOther = true;
+	}
+
+	if(useOther)
+	{
+		if(ifnull(c.get("Other_Street"), "") != "")
+		{
+			upd.put("Shipping_Street", c.get("Other_Street"));
+		}
+		if(ifnull(c.get("Other_Street_E"), "") != "")
+		{
+			upd.put("Shipping_Street_E", c.get("Other_Street_E"));
+		}
+		if(ifnull(c.get("Other_City"), "") != "")
+		{
+			upd.put("Shipping_City", c.get("Other_City"));
+		}
+		if(ifnull(c.get("Other_City_E"), "") != "")
+		{
+			upd.put("Shipping_City_E", c.get("Other_City_E"));
+		}
+		if(ifnull(c.get("Other_Zip"), "") != "")
+		{
+			upd.put("Shipping_Code", c.get("Other_Zip"));
+		}
+		if(ifnull(c.get("Other_Country"), "") != "")
+		{
+			upd.put("Shipping_Country", c.get("Other_Country"));
+		}
+		if(ifnull(c.get("Other_House"), "") != "")
+		{
+			upd.put("Shipping_House", c.get("Other_House"));
+		}
+		oeh = ifnull(c.get("Other_Entry_H"), ifnull(c.get("Other_Entry"), ""));
+		if(oeh != "" && oeh.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_Entry_H", oeh);
+		}
+		oee = ifnull(c.get("Other_Entry_E"), "");
+		if(oee != "" && oee.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_Entry_E", oee);
+		}
+		oa = ifnull(c.get("Other_Apt"), "");
+		if(oa != "" && oa.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_APT", oa);
+		}
+	}
+	else
+	{
+		if(ifnull(c.get("Mailing_Street"), "") != "")
+		{
+			upd.put("Shipping_Street", c.get("Mailing_Street"));
+		}
+		if(ifnull(c.get("Mailing_Street_E"), "") != "")
+		{
+			upd.put("Shipping_Street_E", c.get("Mailing_Street_E"));
+		}
+		if(ifnull(c.get("Mailing_City"), "") != "")
+		{
+			upd.put("Shipping_City", c.get("Mailing_City"));
+		}
+		if(ifnull(c.get("Mailing_City_E"), "") != "")
+		{
+			upd.put("Shipping_City_E", c.get("Mailing_City_E"));
+		}
+		if(ifnull(c.get("Mailing_Zip"), "") != "")
+		{
+			upd.put("Shipping_Code", c.get("Mailing_Zip"));
+		}
+		if(ifnull(c.get("Mailing_Country"), "") != "")
+		{
+			upd.put("Shipping_Country", c.get("Mailing_Country"));
+		}
+		if(house != "")
+		{
+			upd.put("Shipping_House", house);
+		}
+		if(entryH != "" && entryH.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_Entry_H", entryH);
+		}
+		if(entryE != "" && entryE.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_Entry_E", entryE);
+		}
+		if(apt != "" && apt.toLowerCase() != "manual")
+		{
+			upd.put("Shipping_APT", apt);
+		}
+	}
+
+	if(upd.size() == 0)
+	{
+		info "Copy_Address_From_Contact: nothing to copy for SO " + salesorderId;
+		return;
+	}
+
+	resp = zoho.crm.updateRecord("Sales_Orders", salesorderId, upd);
+	info resp;
+}
