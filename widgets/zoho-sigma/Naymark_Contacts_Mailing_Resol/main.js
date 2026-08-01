@@ -924,10 +924,19 @@ const UI = {
       }
 
       await populateZoho(payload);
-      setStatus(onDetail ? 'Saved to record. Closing...' : 'Populated. Closing...', 'ok');
+      setStatus(onDetail ? 'Saved to record. Reloading...' : 'Populated. Closing...', 'ok');
 
-      // close popup safely
+      // close popup safely; on Detail reload parent so user does not need F5
       try {
+        if (onDetail && ZOHO?.CRM?.UI?.Popup?.closeReload) {
+          return ZOHO.CRM.UI.Popup.closeReload();
+        }
+        if (onDetail && getRecordId() && ZOHO?.CRM?.UI?.Record?.open) {
+          try {
+            if (ZOHO?.CRM?.UI?.Popup?.close) await ZOHO.CRM.UI.Popup.close();
+          } catch (_) {}
+          return ZOHO.CRM.UI.Record.open({ Entity: entity, RecordID: getRecordId() });
+        }
         if (ZOHO?.CRM?.UI?.Popup?.close) return ZOHO.CRM.UI.Popup.close();
         if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
         if (ZOHO?.embeddedApp?.close) return ZOHO.embeddedApp.close();
