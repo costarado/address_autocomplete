@@ -204,57 +204,12 @@ const UI = {
     return payload;
   }
 
-  let pageLoadData = null;
-
-  function getRecordId() {
-    const d = pageLoadData || {};
-    // Detail/List custom buttons often send EntityId as an array: ["123..."]
-    let id =
-      d.EntityId ||
-      d.entityId ||
-      d.RecordID ||
-      d.recordId ||
-      (Array.isArray(d.data) && d.data[0] && (d.data[0].id || d.data[0].ID || d.data[0].EntityId)) ||
-      (d.data && (d.data.EntityId || d.data.id)) ||
-      null;
-
-    if (Array.isArray(id)) id = id[0];
-    if (id == null) return null;
-    id = String(id).trim();
-    return id || null;
-  }
-
   async function populateZoho(payload) {
     if (!payload || Object.keys(payload).length === 0) return;
-
-    // Detail view: populate() does NOT persist. Use updateRecord when we have an id.
-    const recordId = getRecordId();
-    const entity = getEntity();
-    if (recordId && ZOHO?.CRM?.API?.updateRecord) {
-      const apiData = Object.assign({ id: recordId }, payload);
-      const res = await ZOHO.CRM.API.updateRecord({
-        Entity: entity,
-        APIData: apiData,
-        Trigger: ["workflow"],
-      });
-      const row = res?.data?.[0] || res?.[0] || null;
-      if (row && row.status && String(row.status).toLowerCase() === "error") {
-        throw new Error(row.message || row.code || "updateRecord failed");
-      }
-      if (row && row.code && String(row.code).toUpperCase() !== "SUCCESS") {
-        throw new Error(row.message || row.code || "updateRecord failed");
-      }
-      return res;
-    }
-
-    // Create / Edit form: fill fields in the open UI form.
     await ZOHO.CRM.UI.Record.populate(payload);
   }
 
   async function clearZohoFieldsForCurrentContext() {
-    // On Detail, never wipe CRM fields while searching — only clear the widget UI.
-    if (getRecordId()) return;
-
     const entity = getEntity();
     const target = getTarget();
     const metaSet = await getMetaSet(entity);
@@ -268,7 +223,7 @@ const UI = {
     });
 
     try {
-      await ZOHO.CRM.UI.Record.populate(payload);
+      await populateZoho(payload);
     } catch (e) {
       // don't break the search flow
       console.warn('Clear populate failed', e);
@@ -907,16 +862,8 @@ const UI = {
       const target = getTarget();
       const metaSet = await getMetaSet(entity);
 
-      // On detail we persist via API — do not wipe unrelated blanks / "manual" placeholders.
-      const onDetail = !!getRecordId();
-      const payload = buildPayloadFromUI(entity, target, metaSet, {
-        includeEmpty: !onDetail,
-      });
-
-      // Never write placeholder "manual" into CRM.
-      Object.keys(payload).forEach((k) => {
-        if (String(payload[k]).trim().toLowerCase() === "manual") delete payload[k];
-      });
+      // include empty strings so Zoho clears previous values where UI is blank
+      const payload = buildPayloadFromUI(entity, target, metaSet, { includeEmpty: true });
 
       if (!payload || Object.keys(payload).length === 0) {
         setStatus('Nothing to populate (no matching fields in layout/meta).', 'error');
@@ -924,7 +871,7 @@ const UI = {
       }
 
       await populateZoho(payload);
-      setStatus(onDetail ? 'Saved to record. Closing...' : 'Populated. Closing...', 'ok');
+      setStatus('Populated. Closing...', 'ok');
 
       // close popup safely
       try {
@@ -949,9 +896,8 @@ const UI = {
     });
   }
 
-  ZOHO.embeddedApp.on('PageLoad', (data) => {
+  ZOHO.embeddedApp.on('PageLoad', () => {
     try {
-      pageLoadData = data || null;
       renderModuleAndTargets(defaultContext());
       clearUIFields();
       bindValueChangeEnablers();
@@ -959,14 +905,7 @@ const UI = {
 
       UI.approve.addEventListener('click', approveAndClose);
 
-      const rid = getRecordId();
-      console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid);
-      setStatus(
-        rid
-          ? `Ready. Detail save ON (id ${rid}). Search address, then Approve.`
-          : 'Ready. No record id — Approve will only populate Edit/Create form.',
-        'info'
-      );
+      setStatus('Ready. Search address.', 'info');
     } catch (e) {
       console.error(e);
       setStatus('Init failed. Check console.', 'error');
