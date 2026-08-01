@@ -131,11 +131,33 @@
       .join(" ")
       .toLowerCase();
 
-    const isCopy =
-      blob.includes("copy") ||
-      blob.includes("копи") ||
-      blob.includes("billing_copy") ||
-      fileHintIncludesCopy();
+    const file = (() => {
+      try { return (location.pathname.split("/").pop() || "").toLowerCase(); }
+      catch (_) { return ""; }
+    })();
+
+    // Billing → Shipping (within Sales Order), NOT from Contact
+    const isBillToShip =
+      blob.includes("счёт -> доставка") ||
+      blob.includes("счет -> доставка") ||
+      blob.includes("bill_to_ship") ||
+      blob.includes("billing_to_shipping") ||
+      (blob.includes("биллинг") && blob.includes("шип")) ||
+      (blob.includes("счёт") && blob.includes("достав") && !blob.includes("контакт")) ||
+      (blob.includes("счет") && blob.includes("достав") && !blob.includes("контакт")) ||
+      file.includes("bill_to_ship");
+
+    // Contact → Order (Mailing/Other → Billing/Shipping)
+    const isCopyFromContact =
+      !isBillToShip && (
+        blob.includes("из контакт") ||
+        blob.includes("from contact") ||
+        blob.includes("billing_copy") ||
+        file.includes("billing_copy") ||
+        file.includes("widget_copy") ||
+        (blob.includes("копи") && blob.includes("контакт")) ||
+        (blob.includes("copy") && blob.includes("contact"))
+      );
 
     let target;
     if (moduleName === "SalesOrders") {
@@ -146,21 +168,16 @@
       else target = "mailing";
     }
 
+    let mode = "resolve";
+    if (isBillToShip) mode = "bill_to_ship";
+    else if (isCopyFromContact) mode = "copy";
+
     // Filename fallback if Entity missing
     if (!rawEntity) {
       const fileCtx = detectContext();
-      return Object.assign({}, fileCtx, { mode: isCopy ? "copy" : "resolve" });
+      return Object.assign({}, fileCtx, { mode });
     }
-    return { module: moduleName, target, mode: isCopy ? "copy" : "resolve" };
-  }
-
-  function fileHintIncludesCopy() {
-    try {
-      const file = (location.pathname.split("/").pop() || "").toLowerCase();
-      return file.includes("copy") || file.includes("billing_copy");
-    } catch (_) {
-      return false;
-    }
+    return { module: moduleName, target, mode };
   }
 
   function getMapping(moduleName, target) {

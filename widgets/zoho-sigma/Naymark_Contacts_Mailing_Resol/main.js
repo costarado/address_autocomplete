@@ -103,7 +103,7 @@ const UI = {
 
   function forcedMode() {
     const m = String(window.NAYMARK_MODE || '').toLowerCase().trim();
-    if (m === 'copy' || m === 'resolve') return m;
+    if (m === 'copy' || m === 'resolve' || m === 'bill_to_ship' || m === 'ship_to_bill') return m;
     return '';
   }
 
@@ -122,15 +122,17 @@ const UI = {
       const fm = forcedMode();
       if (fm) c.mode = fm;
 
-      // Copy entry always targets Sales Orders billing (writes billing+shipping together)
-      if (c.mode === 'copy') {
+      // Contact→Order and Billing↔Shipping always on Sales Orders
+      if (c.mode === 'copy' || c.mode === 'bill_to_ship' || c.mode === 'ship_to_bill') {
         c.module = 'SalesOrders';
-        c.target = c.target === 'shipping' ? 'shipping' : 'billing';
+        c.target = c.mode === 'ship_to_bill' ? 'billing' : 'shipping';
       }
       return c;
     } catch (_) {}
     const fm = forcedMode();
     if (fm === 'copy') return { module: 'SalesOrders', target: 'billing', mode: 'copy' };
+    if (fm === 'bill_to_ship') return { module: 'SalesOrders', target: 'shipping', mode: 'bill_to_ship' };
+    if (fm === 'ship_to_bill') return { module: 'SalesOrders', target: 'billing', mode: 'ship_to_bill' };
     return { module: 'Contacts', target: 'mailing', mode: 'resolve' };
   }
 
@@ -547,6 +549,93 @@ const UI = {
 
     const { method } = await writeCopyPayload(payload);
     return { method, payload, billPayload, shipPayload, shipSource, lookupField };
+  }
+
+  async function transferOrderAddresses(direction) {
+    // direction: 'bill_to_ship' | 'ship_to_bill'
+    await waitForZohoApi(4000);
+    if (UI.module) UI.module.value = 'SalesOrders';
+
+    const orderId = getRecordId();
+    const soMeta = await getMetaSet('SalesOrders');
+    const billMap = getMapping('SalesOrders', 'billing');
+    const shipMap = getMapping('SalesOrders', 'shipping');
+    if (!billMap || !shipMap) throw new Error('FIELD_LIBRARY: нет mapping billing/shipping');
+
+    let sourceVals = {};
+    if (orderId) {
+      const res = await ZOHO.CRM.API.getRecord({ Entity: 'Sales_Orders', RecordID: orderId });
+      const rec = res?.data?.[0] || res?.data || res;
+      if (!rec) throw new Error('Sales Order not found');
+      sourceVals = direction === 'bill_to_ship'
+        ? readMappedValues(rec, billMap, soMeta)
+        : readMappedValues(rec, shipMap, soMeta);
+    } else {
+      throw new Error(
+        'На Create этот виджет не читает форму напрямую.\n' +
+        'Используй Client Script «Скопировать счёт -> доставка» на Create/Clone,\n' +
+        'или сохрани заказ и нажми кнопку на Details.'
+      );
+    }
+
+    if (!Object.keys(sourceVals).length) {
+      throw new Error(direction === 'bill_to_ship'
+        ? 'Billing пустой — копировать в Shipping нечего.'
+        : 'Shipping пустой — копировать в Billing нечего.');
+    }
+
+    const targetMap = direction === 'bill_to_ship' ? shipMap : billMap;
+    const payload = buildPayloadFromLogical(targetMap, sourceVals, soMeta, { includeEmpty: false });
+    if (!Object.keys(payload).length) {
+      throw new Error('Не удалось сопоставить поля Billing/Shipping (проверь API names в META)');
+    }
+
+    applyLogicalToUI(sourceVals);
+    const apiData = Object.assign({ id: orderId }, payload);
+    console.log('Naymark transfer', direction, apiData);
+    const upd = await ZOHO.CRM.API.updateRecord({
+      Entity: 'Sales_Orders',
+      APIData: apiData,
+      Trigger: ['workflow'],
+    });
+    console.log('Naymark transfer response', upd);
+    const row = upd?.data?.[0] || upd?.[0] || null;
+    if (row && row.status && String(row.status).toLowerCase() === 'error') {
+      throw new Error(row.message || row.code || 'updateRecord failed');
+    }
+    if (row && row.code && String(row.code).toUpperCase() !== 'SUCCESS') {
+      throw new Error(row.message || row.code || 'updateRecord failed');
+    }
+    return { payload, direction };
+  }
+
+  async function runBillToShip() {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          setStatus(`Повтор ${attempt}/3 Billing→Shipping…`, 'info');
+          metaCache.delete('Sales_Orders');
+          await sleep(300 * attempt);
+        } else {
+          setStatus('Копирую Billing → Shipping…', 'info');
+        }
+        const { payload } = await transferOrderAddresses('bill_to_ship');
+        setStatus(`OK: Billing → Shipping, полей: ${Object.keys(payload).length}. F5 если карточка пустая.`, 'ok');
+        await sleep(500);
+        try {
+          if (ZOHO?.CRM?.UI?.Popup?.closeReload) {
+            try { return await ZOHO.CRM.UI.Popup.closeReload(); } catch (_) {}
+          }
+          if (ZOHO?.CRM?.UI?.Popup?.close) return await ZOHO.CRM.UI.Popup.close();
+        } catch (_) {}
+        return;
+      } catch (e) {
+        lastErr = e;
+        console.warn('bill_to_ship failed', attempt, e);
+      }
+    }
+    setStatus('Billing→Shipping failed:\n' + (lastErr && lastErr.message ? lastErr.message : lastErr), 'error');
   }
 
   async function copyAddressFromContact() {
@@ -1315,8 +1404,13 @@ const UI = {
         bindValueChangeEnablers();
         UI.approve.addEventListener('click', approveAndClose);
         if (UI.copyContact) UI.copyContact.addEventListener('click', () => copyAddressFromContact());
+        const btnB2S = document.getElementById('btn_bill_to_ship');
+        if (btnB2S) btnB2S.addEventListener('click', () => runBillToShip());
         bootBound = true;
       }
+      // expose for dedicated entry pages
+      window.NAYMARK_RUN_BILL_TO_SHIP = runBillToShip;
+      window.NAYMARK_RUN_COPY_FROM_CONTACT = copyAddressFromContact;
       initAutocomplete();
       syncCopyButtonVisibility();
 
@@ -1332,7 +1426,7 @@ const UI = {
         }
       });
 
-      // Copy widget: wait for SDK, then auto-run with retries (cold iframe often fails once)
+      // Auto modes: wait for SDK, then run with retries (cold iframe often fails once)
       if (ctx.mode === 'copy') {
         setStatus(
           'Copy mode: жду Zoho API, затем Mailing→Billing / Other→Shipping…',
@@ -1340,6 +1434,12 @@ const UI = {
         );
         await sleep(450);
         await copyAddressFromContact();
+        return;
+      }
+      if (ctx.mode === 'bill_to_ship') {
+        setStatus('Billing → Shipping: жду Zoho API…', 'info');
+        await sleep(450);
+        await runBillToShip();
         return;
       }
 
