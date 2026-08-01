@@ -196,22 +196,48 @@ const UI = {
     return UI.target?.value || 'mailing';
   }
 
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  async function waitForZohoApi(timeoutMs) {
+    const t0 = Date.now();
+    const max = timeoutMs || 4000;
+    while (Date.now() - t0 < max) {
+      if (window.ZOHO?.CRM?.API?.getRecord && window.ZOHO?.CRM?.API?.updateRecord) {
+        return true;
+      }
+      await sleep(80);
+    }
+    return !!(window.ZOHO?.CRM?.API?.getRecord);
+  }
+
   async function getMetaSet(entity) {
     const api = apiEntity(entity);
-    if (metaCache.has(api)) return metaCache.get(api);
+    if (metaCache.has(api) && metaCache.get(api).size > 0) return metaCache.get(api);
 
-    try {
-      const meta = await ZOHO.CRM.META.getFields({ Entity: api });
-      const fields = (meta && meta.fields) ? meta.fields : [];
-      const s = new Set();
-      fields.forEach((f) => { if (f && f.api_name) s.add(f.api_name); });
-      metaCache.set(api, s);
-      return s;
-    } catch (_) {
-      const s = new Set();
-      metaCache.set(api, s);
-      return s;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await waitForZohoApi(2000);
+        const meta = await ZOHO.CRM.META.getFields({ Entity: api });
+        const fields = (meta && meta.fields) ? meta.fields : [];
+        const s = new Set();
+        fields.forEach((f) => { if (f && f.api_name) s.add(f.api_name); });
+        if (s.size > 0) {
+          metaCache.set(api, s);
+          return s;
+        }
+        lastErr = new Error('META empty for ' + api);
+      } catch (e) {
+        lastErr = e;
+      }
+      await sleep(200 * attempt);
     }
+    console.warn('Naymark getMetaSet fallback empty', api, lastErr);
+    const s = new Set();
+    metaCache.set(api, s);
+    return s;
   }
 
   function pickExisting(candidates, metaSet) {
@@ -281,26 +307,37 @@ const UI = {
   async function populateZoho(payload) {
     if (!payload || Object.keys(payload).length === 0) return;
 
+    await waitForZohoApi(4000);
+
     // Detail view: populate() does NOT persist. Use updateRecord when we have an id.
     const recordId = getRecordId();
     const entity = apiEntity(getEntity());
     if (recordId && ZOHO?.CRM?.API?.updateRecord) {
       const apiData = Object.assign({ id: recordId }, payload);
-      console.log('Naymark updateRecord', entity, recordId, payload);
-      const res = await ZOHO.CRM.API.updateRecord({
-        Entity: entity,
-        APIData: apiData,
-        Trigger: ["workflow"],
-      });
-      console.log('Naymark updateRecord response', res);
-      const row = res?.data?.[0] || res?.[0] || null;
-      if (row && row.status && String(row.status).toLowerCase() === "error") {
-        throw new Error(row.message || row.code || "updateRecord failed");
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log('Naymark updateRecord', attempt, entity, recordId, payload);
+          const res = await ZOHO.CRM.API.updateRecord({
+            Entity: entity,
+            APIData: apiData,
+            Trigger: ["workflow"],
+          });
+          console.log('Naymark updateRecord response', res);
+          const row = res?.data?.[0] || res?.[0] || null;
+          if (row && row.status && String(row.status).toLowerCase() === "error") {
+            throw new Error(row.message || row.code || "updateRecord failed");
+          }
+          if (row && row.code && String(row.code).toUpperCase() !== "SUCCESS") {
+            throw new Error(row.message || row.code || "updateRecord failed");
+          }
+          return res;
+        } catch (e) {
+          lastErr = e;
+          await sleep(250 * attempt);
+        }
       }
-      if (row && row.code && String(row.code).toUpperCase() !== "SUCCESS") {
-        throw new Error(row.message || row.code || "updateRecord failed");
-      }
-      return res;
+      throw lastErr || new Error('updateRecord failed');
     }
 
     // Create / Edit form: fill fields in the open UI form.
@@ -455,78 +492,100 @@ const UI = {
     return { method: 'populate', res: true };
   }
 
-  async function copyAddressFromContact() {
-    try {
-      // Always treat as Sales Orders for copy
-      if (UI.module) UI.module.value = 'SalesOrders';
-      syncCopyButtonVisibility();
+  async function copyAddressFromContactOnce() {
+    // Always treat as Sales Orders for copy
+    if (UI.module) UI.module.value = 'SalesOrders';
+    syncCopyButtonVisibility();
 
-      const orderId = getRecordId();
-      setStatus(
-        orderId
-          ? 'Копирую адрес из Contact в Billing/Shipping…'
-          : 'Create-режим: читаю Contact и заполняю форму заказа…',
-        'info'
-      );
+    const ready = await waitForZohoApi(4000);
+    if (!ready) throw new Error('Zoho API ещё не готов (подождите и нажмите Copy again)');
 
-      const { contactId, lookupField } = await resolveContactForCopy(orderId);
-      console.log('Naymark copy: contact via', lookupField, contactId, 'orderId=', orderId);
+    const orderId = getRecordId();
+    setStatus(
+      orderId
+        ? 'Копирую адрес из Contact в Billing/Shipping…'
+        : 'Create-режим: читаю Contact и заполняю форму заказа…',
+      'info'
+    );
 
-      const cRes = await ZOHO.CRM.API.getRecord({ Entity: 'Contacts', RecordID: contactId });
-      const contact = cRes?.data?.[0] || cRes?.data || cRes;
-      if (!contact) throw new Error('Contact не найден');
+    const { contactId, lookupField } = await resolveContactForCopy(orderId);
+    console.log('Naymark copy: contact via', lookupField, contactId, 'orderId=', orderId);
 
-      const contactMeta = await getMetaSet('Contacts');
-      const soMeta = await getMetaSet('SalesOrders');
-      const mailMap = getMapping('Contacts', 'mailing');
-      const otherMap = getMapping('Contacts', 'other');
-      const billMap = getMapping('SalesOrders', 'billing');
-      const shipMap = getMapping('SalesOrders', 'shipping');
+    const cRes = await ZOHO.CRM.API.getRecord({ Entity: 'Contacts', RecordID: contactId });
+    const contact = cRes?.data?.[0] || cRes?.data || cRes;
+    if (!contact) throw new Error('Contact не найден');
 
-      const mailing = readMappedValues(contact, mailMap, contactMeta);
-      const other = readMappedValues(contact, otherMap, contactMeta);
+    // Warm META (often empty on first cold open)
+    const contactMeta = await getMetaSet('Contacts');
+    const soMeta = await getMetaSet('SalesOrders');
+    const mailMap = getMapping('Contacts', 'mailing');
+    const otherMap = getMapping('Contacts', 'other');
+    const billMap = getMapping('SalesOrders', 'billing');
+    const shipMap = getMapping('SalesOrders', 'shipping');
 
-      // Business rule:
-      // 1) Mailing → Billing
-      // 2) Other → Shipping
-      // 3) if Other empty → Mailing → Billing AND Shipping
-      const billPayload = buildPayloadFromLogical(billMap, mailing, soMeta, { includeEmpty: false });
-      let shipPayload = buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false });
-      let shipSource = 'other';
-      if (Object.keys(shipPayload).length === 0) {
-        shipPayload = buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false });
-        shipSource = 'mailing(fallback)';
-      }
-      const payload = Object.assign({}, billPayload, shipPayload);
+    const mailing = readMappedValues(contact, mailMap, contactMeta);
+    const other = readMappedValues(contact, otherMap, contactMeta);
 
-      if (!Object.keys(payload).length) {
-        setStatus('У Contact пустые Mailing/Other — копировать нечего.', 'error');
-        return;
-      }
-
-      applyLogicalToUI(Object.keys(mailing).length ? mailing : other);
-
-      const { method } = await writeCopyPayload(payload);
-      const msg =
-        `OK: скопировано ${Object.keys(payload).length} полей из Contact (${lookupField}).\n` +
-        `Billing ← mailing (${Object.keys(billPayload).length}), ` +
-        `Shipping ← ${shipSource} (${Object.keys(shipPayload).length}).\n` +
-        `Способ: ${method}.` +
-        (method === 'updateRecord' ? ' Если карточка пустая — F5.' : ' Проверьте поля формы заказа.');
-      setStatus(msg, 'ok');
-
-      await new Promise((r) => setTimeout(r, 700));
-      try {
-        if (method === 'updateRecord' && ZOHO?.CRM?.UI?.Popup?.closeReload) {
-          try { return await ZOHO.CRM.UI.Popup.closeReload(); } catch (_) {}
-        }
-        if (ZOHO?.CRM?.UI?.Popup?.close) return await ZOHO.CRM.UI.Popup.close();
-        if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
-      } catch (_) {}
-    } catch (e) {
-      console.error(e);
-      setStatus('Copy failed:\n' + (e && e.message ? e.message : e), 'error');
+    // Business rule:
+    // 1) Mailing → Billing
+    // 2) Other → Shipping
+    // 3) if Other empty → Mailing → Billing AND Shipping
+    const billPayload = buildPayloadFromLogical(billMap, mailing, soMeta, { includeEmpty: false });
+    let shipPayload = buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false });
+    let shipSource = 'other';
+    if (Object.keys(shipPayload).length === 0) {
+      shipPayload = buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false });
+      shipSource = 'mailing(fallback)';
     }
+    const payload = Object.assign({}, billPayload, shipPayload);
+
+    if (!Object.keys(payload).length) {
+      throw new Error('У Contact пустые Mailing/Other — или META полей ещё не подгрузилась');
+    }
+
+    applyLogicalToUI(Object.keys(mailing).length ? mailing : other);
+
+    const { method } = await writeCopyPayload(payload);
+    return { method, payload, billPayload, shipPayload, shipSource, lookupField };
+  }
+
+  async function copyAddressFromContact() {
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (attempt > 1) {
+          setStatus(`Повтор ${attempt}/3… (Zoho API/META иногда не готовы с первого раза)`, 'info');
+          // Drop empty META cache so retry can refetch
+          metaCache.delete('Contacts');
+          metaCache.delete('Sales_Orders');
+          await sleep(350 * attempt);
+        }
+
+        const result = await copyAddressFromContactOnce();
+        const msg =
+          `OK: скопировано ${Object.keys(result.payload).length} полей из Contact (${result.lookupField}).\n` +
+          `Billing ← mailing (${Object.keys(result.billPayload).length}), ` +
+          `Shipping ← ${result.shipSource} (${Object.keys(result.shipPayload).length}).\n` +
+          `Способ: ${result.method}.` +
+          (result.method === 'updateRecord' ? ' Если карточка пустая — F5.' : ' Проверьте поля формы заказа.');
+        setStatus(msg, 'ok');
+
+        await sleep(500);
+        try {
+          if (result.method === 'updateRecord' && ZOHO?.CRM?.UI?.Popup?.closeReload) {
+            try { return await ZOHO.CRM.UI.Popup.closeReload(); } catch (_) {}
+          }
+          if (ZOHO?.CRM?.UI?.Popup?.close) return await ZOHO.CRM.UI.Popup.close();
+          if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
+        } catch (_) {}
+        return;
+      } catch (e) {
+        lastErr = e;
+        console.warn('Naymark copy attempt failed', attempt, e);
+      }
+    }
+    console.error(lastErr);
+    setStatus('Copy failed:\n' + (lastErr && lastErr.message ? lastErr.message : lastErr), 'error');
   }
 
   async function clearZohoFieldsForCurrentContext() {
@@ -1244,31 +1303,43 @@ const UI = {
     });
   }
 
-  ZOHO.embeddedApp.on('PageLoad', (data) => {
+  let bootBound = false;
+
+  ZOHO.embeddedApp.on('PageLoad', async (data) => {
     try {
       pageLoadData = data || null;
       const ctx = defaultContext(pageLoadData);
       renderModuleAndTargets(ctx);
       clearUIFields();
-      bindValueChangeEnablers();
+      if (!bootBound) {
+        bindValueChangeEnablers();
+        UI.approve.addEventListener('click', approveAndClose);
+        if (UI.copyContact) UI.copyContact.addEventListener('click', () => copyAddressFromContact());
+        bootBound = true;
+      }
       initAutocomplete();
       syncCopyButtonVisibility();
-
-      UI.approve.addEventListener('click', approveAndClose);
-      if (UI.copyContact) UI.copyContact.addEventListener('click', copyAddressFromContact);
 
       const rid = getRecordId();
       const ent = apiEntity(getEntity());
       console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid, 'entity=', ent, 'ctx=', ctx);
 
-      // Copy widget (widget_copy.html / NAYMARK_MODE=copy): always auto-run.
-      // Works on Details (updateRecord) and Create/Clone (populate), if Contact is known.
+      // Warm API/META in background so first Approve/Copy is less flaky
+      waitForZohoApi(4000).then(() => {
+        getMetaSet(getEntity()).catch(() => {});
+        if (normalizeModule(getEntity()) === 'SalesOrders') {
+          getMetaSet('Contacts').catch(() => {});
+        }
+      });
+
+      // Copy widget: wait for SDK, then auto-run with retries (cold iframe often fails once)
       if (ctx.mode === 'copy') {
         setStatus(
-          'Copy mode: Mailing→Billing, Other→Shipping.\nЕсли Other пустой — Mailing в обе части…',
+          'Copy mode: жду Zoho API, затем Mailing→Billing / Other→Shipping…',
           'info'
         );
-        copyAddressFromContact();
+        await sleep(450);
+        await copyAddressFromContact();
         return;
       }
 
