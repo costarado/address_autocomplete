@@ -208,15 +208,20 @@ const UI = {
 
   function getRecordId() {
     const d = pageLoadData || {};
-    return (
+    // Detail/List custom buttons often send EntityId as an array: ["123..."]
+    let id =
       d.EntityId ||
       d.entityId ||
       d.RecordID ||
       d.recordId ||
-      (Array.isArray(d.data) && d.data[0] && (d.data[0].id || d.data[0].ID)) ||
+      (Array.isArray(d.data) && d.data[0] && (d.data[0].id || d.data[0].ID || d.data[0].EntityId)) ||
       (d.data && (d.data.EntityId || d.data.id)) ||
-      null
-    );
+      null;
+
+    if (Array.isArray(id)) id = id[0];
+    if (id == null) return null;
+    id = String(id).trim();
+    return id || null;
   }
 
   async function populateZoho(payload) {
@@ -233,6 +238,9 @@ const UI = {
         Trigger: ["workflow"],
       });
       const row = res?.data?.[0] || res?.[0] || null;
+      if (row && row.status && String(row.status).toLowerCase() === "error") {
+        throw new Error(row.message || row.code || "updateRecord failed");
+      }
       if (row && row.code && String(row.code).toUpperCase() !== "SUCCESS") {
         throw new Error(row.message || row.code || "updateRecord failed");
       }
@@ -244,6 +252,9 @@ const UI = {
   }
 
   async function clearZohoFieldsForCurrentContext() {
+    // On Detail, never wipe CRM fields while searching — only clear the widget UI.
+    if (getRecordId()) return;
+
     const entity = getEntity();
     const target = getTarget();
     const metaSet = await getMetaSet(entity);
@@ -257,7 +268,7 @@ const UI = {
     });
 
     try {
-      await populateZoho(payload);
+      await ZOHO.CRM.UI.Record.populate(payload);
     } catch (e) {
       // don't break the search flow
       console.warn('Clear populate failed', e);
@@ -949,10 +960,11 @@ const UI = {
       UI.approve.addEventListener('click', approveAndClose);
 
       const rid = getRecordId();
+      console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid);
       setStatus(
         rid
-          ? 'Ready. Search address. Approve will save to this record.'
-          : 'Ready. Search address. Open from Edit/Create, or Detail with record id.',
+          ? `Ready. Detail save ON (id ${rid}). Search address, then Approve.`
+          : 'Ready. No record id — Approve will only populate Edit/Create form.',
         'info'
       );
     } catch (e) {
