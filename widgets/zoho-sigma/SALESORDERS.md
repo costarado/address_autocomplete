@@ -1,25 +1,30 @@
-# Sales Orders — Find Address + Copy from Contact
+# Sales Orders widgets
 
-## 1) Upload widget (same as Contacts)
-File: `Naymark_MAILING_USE_THIS.zip`  
-Index: `widget.html` → Publish
+## Business rules (Copy)
+1. Contact **Mailing** → Sales Order **Billing**
+2. Contact **Other** → Sales Order **Shipping**
+3. If **Other** is empty → **Mailing** goes into **both** Billing and Shipping  
+   (parcels are sent via Shipping)
 
-Open Find Address from a **Sales Order**. Status should show:
-`Ready. Sales_Orders save ON (id …). Target: billing.`
+## Which Zoho widget to update
 
-If Module still says Contacts — switch to **SalesOrders** / billing or shipping, then Approve.
+| CRM button | Zoho widget name | Upload |
+|---|---|---|
+| Копи адреса из контакта | `Naymark_SO_Billing_Copy_v1_0` | same `Naymark_MAILING_USE_THIS.zip` |
+| Найти адрес счёта/доставки | `Naymark_SO_Find_Billing` | same zip |
+| Find Address (Contacts) | `Naymark_Contacts_Mailing_Resol` | same zip |
 
-## 2) Copy address from Contact
-In the widget (when Module = SalesOrders) use button:
-**Copy address from Contact → Order**
+Same zip package, three widget hosts. Index = `widget.html`.
 
-- Mailing → Billing  
-- Other → Shipping (if Other empty → copy Mailing to Shipping too)
+### Copy button settings
+- Action: Open a Widget → `Naymark_SO_Billing_Copy_v1_0`
+- Position: **Details** (not Create/Clone — needs saved order + Contact)
+- On open, widget auto-runs copy (Mailing→Billing, Other→Shipping / else both)
 
-Then F5 on the order if fields look empty.
+### Find button settings
+- Action: Open a Widget → `Naymark_SO_Find_Billing`
+- Position: Details
+- Manual search → Approve (entity `Sales_Orders`)
 
-## 3) Standalone CRM button that “does nothing”
-Wire it to Deluge function:
+Optional Deluge (if you prefer Function instead of Widget):  
 `client-scripts/SalesOrders_Copy_Address_From_Contact.deluge`
-
-Setup → Functions → Button / Sales Orders → paste → attach to your Copy button with Sales Order Id.

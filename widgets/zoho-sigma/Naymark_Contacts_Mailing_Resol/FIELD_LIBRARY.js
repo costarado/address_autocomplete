@@ -131,23 +131,36 @@
       .join(" ")
       .toLowerCase();
 
+    const isCopy =
+      blob.includes("copy") ||
+      blob.includes("копи") ||
+      blob.includes("billing_copy") ||
+      fileHintIncludesCopy();
+
     let target;
     if (moduleName === "SalesOrders") {
-      if (blob.includes("ship")) target = "shipping";
-      else if (blob.includes("bill")) target = "billing";
+      if (blob.includes("ship") && !blob.includes("bill")) target = "shipping";
       else target = "billing";
     } else {
       if (blob.includes("other")) target = "other";
-      else if (blob.includes("mail")) target = "mailing";
       else target = "mailing";
     }
 
     // Filename fallback if Entity missing
     if (!rawEntity) {
       const fileCtx = detectContext();
-      return fileCtx;
+      return Object.assign({}, fileCtx, { mode: isCopy ? "copy" : "resolve" });
     }
-    return { module: moduleName, target };
+    return { module: moduleName, target, mode: isCopy ? "copy" : "resolve" };
+  }
+
+  function fileHintIncludesCopy() {
+    try {
+      const file = (location.pathname.split("/").pop() || "").toLowerCase();
+      return file.includes("copy") || file.includes("billing_copy");
+    } catch (_) {
+      return false;
+    }
   }
 
   function getMapping(moduleName, target) {

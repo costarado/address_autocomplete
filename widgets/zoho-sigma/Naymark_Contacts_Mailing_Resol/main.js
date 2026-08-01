@@ -390,8 +390,10 @@ const UI = {
         buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false })
       );
 
-      // If Other is empty, also copy mailing → shipping so order is not half-blank
-      if (Object.keys(buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false })).length === 0) {
+      // Business rule: Mailing→Billing always; Other→Shipping;
+      // if Other empty → Mailing also goes to Shipping (parcels ship via Shipping).
+      const shipFromOther = buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false });
+      if (Object.keys(shipFromOther).length === 0) {
         Object.assign(payload, buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false }));
       }
 
@@ -1163,6 +1165,15 @@ const UI = {
       const rid = getRecordId();
       const ent = apiEntity(getEntity());
       console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid, 'entity=', ent, 'ctx=', ctx);
+
+      // Dedicated Copy widget / button: Mailing→Billing, Other→Shipping
+      // (if Other empty → Mailing into both). Auto-run so one click on CRM button is enough.
+      if (ctx.mode === 'copy' && rid && normalizeModule(getEntity()) === 'SalesOrders') {
+        setStatus('Copy mode: Mailing→Billing, Other→Shipping (else Mailing→both)...', 'info');
+        copyAddressFromContact();
+        return;
+      }
+
       setStatus(
         rid
           ? `Ready. ${ent} save ON (id ${rid}). Target: ${getTarget()}. Search or Copy from Contact.`
