@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Naymark Copy Address from Contact</title>
+
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 14px; background: #f6f7f9; }
+    #container { display: flex; flex-direction: column; gap: 10px; background: white; padding: 16px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .col { flex: 1; min-width: 220px; }
+    label { font-size: 12px; color: #465; display:block; margin:0 0 6px; }
+    input, select, button { width:100%; box-sizing:border-box; padding:10px 10px; border:1px solid #d6d9de; border-radius:10px; background:#fff; font-size: 14px; }
+    button { border:0; background:#1f6fff; color:#fff; cursor:pointer; }
+    button.secondary { background:#3a4a6a; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    #status { font-size: 13px; color:#3a4a6a; min-height: 2.5em; white-space: pre-wrap; }
+    .hint { font-size: 11px; color:#7a8899; margin-top:4px; }
+    /* Copy widget: hide Google search UI — this entry is copy-only */
+    #searchRow, #approveRow { display: none !important; }
+    #moduleSelect, #targetSelect { pointer-events: none; opacity: .85; }
+  </style>
+
+  <script src="https://live.zwidgets.com/js-sdk/1.5/ZohoEmbededAppSDK.min.js"></script>
+  <!-- Maps not required for copy-only, but main.js initAutocomplete expects google — load lightweight stub skip via flag -->
+  <script>
+    window.NAYMARK_MODE = "copy";
+    window.NAYMARK_SKIP_GOOGLE = true;
+    window.NAYMARK_GOOGLE_KEY = "";
+    window.NAYMARK_DEFAULT_LANG_UI = "he";
+    window.NAYMARK_SUPABASE_URL = "";
+    window.NAYMARK_SUPABASE_ANON_KEY = "";
+  </script>
+</head>
+<body>
+  <div id="container">
+    <div class="row">
+      <div class="col">
+        <label>Module</label>
+        <select id="moduleSelect"></select>
+      </div>
+      <div class="col">
+        <label>Target</label>
+        <select id="targetSelect"></select>
+      </div>
+    </div>
+
+    <div class="row" id="searchRow">
+      <div class="col">
+        <label>Address Search</label>
+        <input id="search" type="text" placeholder="Type address" autocomplete="off" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>Street (HE)</label><input id="street_he" type="text" /></div>
+      <div class="col"><label>Street (E)</label><input id="street_en" type="text" /></div>
+    </div>
+    <div class="row">
+      <div class="col"><label>City (HE)</label><input id="city_he" type="text" /></div>
+      <div class="col"><label>City (E)</label><input id="city_en" type="text" /></div>
+    </div>
+    <div class="row">
+      <div class="col"><label>House</label><input id="house" type="text" /></div>
+      <div class="col"><label>ZIP</label><input id="zip" type="text" /></div>
+    </div>
+    <div class="row">
+      <div class="col"><label>Entry (HE)</label><input id="entry_he" type="text" /></div>
+      <div class="col"><label>Entry (E)</label><input id="entry_en" type="text" /></div>
+    </div>
+    <div class="row">
+      <div class="col"><label>Apt</label><input id="apt" type="text" /></div>
+      <div class="col"><label>Country</label><input id="country" type="text" /></div>
+    </div>
+
+    <div class="row" id="copyRow">
+      <div class="col">
+        <button id="btn_copy_contact" type="button" class="secondary">Copy again: Contact → Order</button>
+        <div class="hint">Mailing → Billing, Other → Shipping. If Other empty — Mailing into both.</div>
+      </div>
+    </div>
+
+    <div class="row" id="approveRow">
+      <div class="col">
+        <button id="btn_approve" disabled>Approve and Close</button>
+      </div>
+    </div>
+
+    <div id="status">Copy mode starting…</div>
+  </div>
+
+  <script src="FIELD_LIBRARY.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

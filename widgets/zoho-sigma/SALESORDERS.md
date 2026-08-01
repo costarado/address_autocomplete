@@ -1,30 +1,27 @@
 # Sales Orders widgets
 
 ## Business rules (Copy)
-1. Contact **Mailing** → Sales Order **Billing**
-2. Contact **Other** → Sales Order **Shipping**
-3. If **Other** is empty → **Mailing** goes into **both** Billing and Shipping  
-   (parcels are sent via Shipping)
+1. Contact **Mailing** → Order **Billing**
+2. Contact **Other** → Order **Shipping**
+3. If **Other** empty → **Mailing** into **Billing and Shipping**
 
-## Which Zoho widget to update
+## Upload the same zip into each widget host
+File: `Naymark_MAILING_USE_THIS.zip`
 
-| CRM button | Zoho widget name | Upload |
+| CRM button | Widget | **Index Page** |
 |---|---|---|
-| Копи адреса из контакта | `Naymark_SO_Billing_Copy_v1_0` | same `Naymark_MAILING_USE_THIS.zip` |
-| Найти адрес счёта/доставки | `Naymark_SO_Find_Billing` | same zip |
-| Find Address (Contacts) | `Naymark_Contacts_Mailing_Resol` | same zip |
+| Копи адреса из контакта (Details + Create/Clone) | `Naymark_SO_Billing_Copy_v1_0` | **`widget_copy.html`** |
+| Найти адрес счёта/доставки | `Naymark_SO_Find_Billing` | `widget.html` |
+| Find Address (Contacts) | `Naymark_Contacts_Mailing_Resol` | `widget.html` |
 
-Same zip package, three widget hosts. Index = `widget.html`.
+Важно: для Copy Index должен быть **`widget_copy.html`**, не `widget.html`.  
+Иначе виджет «висит» в режиме поиска и не копирует сам.
 
-### Copy button settings
-- Action: Open a Widget → `Naymark_SO_Billing_Copy_v1_0`
-- Position: **Details** (not Create/Clone — needs saved order + Contact)
-- On open, widget auto-runs copy (Mailing→Billing, Other→Shipping / else both)
+### Create/Clone
+1. Сначала выберите **Contact** в форме заказа.
+2. Нажмите кнопку Copy.
+3. Адреса заполнятся через `populate` в открытую форму (статус OK в виджете).
 
-### Find button settings
-- Action: Open a Widget → `Naymark_SO_Find_Billing`
-- Position: Details
-- Manual search → Approve (entity `Sales_Orders`)
-
-Optional Deluge (if you prefer Function instead of Widget):  
-`client-scripts/SalesOrders_Copy_Address_From_Contact.deluge`
+### Details
+1. В заказе должен быть Contact_Name.
+2. Кнопка Copy → `updateRecord` → при необходимости F5.

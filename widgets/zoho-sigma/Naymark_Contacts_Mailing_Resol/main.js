@@ -101,19 +101,37 @@ const UI = {
     ];
   }
 
+  function forcedMode() {
+    const m = String(window.NAYMARK_MODE || '').toLowerCase().trim();
+    if (m === 'copy' || m === 'resolve') return m;
+    return '';
+  }
+
   function defaultContext(pageData) {
     try {
       const L = lib();
+      let c = null;
       if (L && typeof L.detectContextFromPageLoad === 'function' && pageData) {
-        const c = L.detectContextFromPageLoad(pageData);
-        if (c && c.module && c.target) return c;
+        c = L.detectContextFromPageLoad(pageData);
       }
-      if (L && typeof L.detectContext === 'function') {
-        const c = L.detectContext();
-        if (c && c.module && c.target) return c;
+      if ((!c || !c.module) && L && typeof L.detectContext === 'function') {
+        c = L.detectContext();
       }
+      if (!c) c = { module: 'Contacts', target: 'mailing', mode: 'resolve' };
+
+      const fm = forcedMode();
+      if (fm) c.mode = fm;
+
+      // Copy entry always targets Sales Orders billing (writes billing+shipping together)
+      if (c.mode === 'copy') {
+        c.module = 'SalesOrders';
+        c.target = c.target === 'shipping' ? 'shipping' : 'billing';
+      }
+      return c;
     } catch (_) {}
-    return { module: 'Contacts', target: 'mailing' };
+    const fm = forcedMode();
+    if (fm === 'copy') return { module: 'SalesOrders', target: 'billing', mode: 'copy' };
+    return { module: 'Contacts', target: 'mailing', mode: 'resolve' };
   }
 
   function syncCopyButtonVisibility() {
@@ -332,6 +350,32 @@ const UI = {
     return payload;
   }
 
+  function findContactIdInObject(obj, depth) {
+    if (!obj || depth > 4) return null;
+    if (typeof obj !== 'object') return null;
+    const candidates = (lib()?.SO_CONTACT_LOOKUP_CANDIDATES) || ['Contact_Name', 'Contact'];
+    for (const api of candidates) {
+      if (obj[api] != null) {
+        const cid = unwrapLookupId(obj[api]);
+        if (cid) return { contactId: cid, lookupField: api };
+      }
+    }
+    for (const k of Object.keys(obj)) {
+      if (/contact/i.test(k)) {
+        const cid = unwrapLookupId(obj[k]);
+        if (cid) return { contactId: cid, lookupField: k };
+      }
+    }
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (v && typeof v === 'object') {
+        const hit = findContactIdInObject(v, depth + 1);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  }
+
   async function resolveContactIdFromSalesOrder(orderId) {
     const soEntity = 'Sales_Orders';
     const res = await ZOHO.CRM.API.getRecord({ Entity: soEntity, RecordID: orderId });
@@ -345,34 +389,92 @@ const UI = {
       const cid = unwrapLookupId(rec[api]);
       if (cid) return { contactId: cid, order: rec, lookupField: api };
     }
-    // last resort: scan record keys
     for (const k of Object.keys(rec)) {
       if (!/contact/i.test(k)) continue;
       const cid = unwrapLookupId(rec[k]);
       if (cid) return { contactId: cid, order: rec, lookupField: k };
     }
-    throw new Error('No Contact linked on this Sales Order (Contact_Name empty)');
+    throw new Error('В заказе не выбран Contact (Contact_Name пустой)');
+  }
+
+  async function resolveContactForCopy(orderId) {
+    // 1) Saved / Detail order
+    if (orderId) {
+      return resolveContactIdFromSalesOrder(orderId);
+    }
+    // 2) PageLoad payload (Create/Clone sometimes includes lookup)
+    const fromPage = findContactIdInObject(pageLoadData, 0);
+    if (fromPage) return fromPage;
+
+    throw new Error(
+      'Нет Contact для копирования.\n' +
+      'На Create: сначала выберите Contact в заказе, сохраните или откройте Copy снова.\n' +
+      'На Details: проверьте, что в заказе заполнен Contact_Name.'
+    );
+  }
+
+  function applyLogicalToUI(uiVals) {
+    if (UI.streetHe) UI.streetHe.value = uiVals.street_he || '';
+    if (UI.streetEn) UI.streetEn.value = uiVals.street_en || '';
+    if (UI.cityHe) UI.cityHe.value = uiVals.city_he || '';
+    if (UI.cityEn) UI.cityEn.value = uiVals.city_en || '';
+    if (UI.house) UI.house.value = uiVals.house || '';
+    if (UI.zip) UI.zip.value = uiVals.zip || '';
+    if (UI.entryHe) UI.entryHe.value = uiVals.entry_he || '';
+    if (UI.entryEn) UI.entryEn.value = uiVals.entry_en || '';
+    if (UI.apt) UI.apt.value = uiVals.apt || '';
+    if (UI.country) UI.country.value = uiVals.country || '';
+    setApproveEnabled();
+  }
+
+  async function writeCopyPayload(payload) {
+    const orderId = getRecordId();
+    if (orderId && ZOHO?.CRM?.API?.updateRecord) {
+      // Detail: persist both billing + shipping in one update
+      const apiData = Object.assign({ id: orderId }, payload);
+      console.log('Naymark copy updateRecord', apiData);
+      const res = await ZOHO.CRM.API.updateRecord({
+        Entity: 'Sales_Orders',
+        APIData: apiData,
+        Trigger: ['workflow'],
+      });
+      console.log('Naymark copy updateRecord response', res);
+      const row = res?.data?.[0] || res?.[0] || null;
+      if (row && row.status && String(row.status).toLowerCase() === 'error') {
+        throw new Error(row.message || row.code || 'updateRecord failed');
+      }
+      if (row && row.code && String(row.code).toUpperCase() !== 'SUCCESS') {
+        throw new Error(row.message || row.code || 'updateRecord failed');
+      }
+      return { method: 'updateRecord', res };
+    }
+
+    // Create/Clone (no id yet): fill open form via populate
+    console.log('Naymark copy populate (create form)', payload);
+    await ZOHO.CRM.UI.Record.populate(payload);
+    return { method: 'populate', res: true };
   }
 
   async function copyAddressFromContact() {
     try {
-      if (normalizeModule(getEntity()) !== 'SalesOrders') {
-        setStatus('Switch Module to SalesOrders to copy from Contact.', 'error');
-        return;
-      }
-      const orderId = getRecordId();
-      if (!orderId) {
-        setStatus('No Sales Order id — open from order Detail button.', 'error');
-        return;
-      }
+      // Always treat as Sales Orders for copy
+      if (UI.module) UI.module.value = 'SalesOrders';
+      syncCopyButtonVisibility();
 
-      setStatus('Loading Contact address...', 'info');
-      const { contactId, lookupField } = await resolveContactIdFromSalesOrder(orderId);
-      console.log('Naymark copy: contact via', lookupField, contactId);
+      const orderId = getRecordId();
+      setStatus(
+        orderId
+          ? 'Копирую адрес из Contact в Billing/Shipping…'
+          : 'Create-режим: читаю Contact и заполняю форму заказа…',
+        'info'
+      );
+
+      const { contactId, lookupField } = await resolveContactForCopy(orderId);
+      console.log('Naymark copy: contact via', lookupField, contactId, 'orderId=', orderId);
 
       const cRes = await ZOHO.CRM.API.getRecord({ Entity: 'Contacts', RecordID: contactId });
       const contact = cRes?.data?.[0] || cRes?.data || cRes;
-      if (!contact) throw new Error('Contact not found');
+      if (!contact) throw new Error('Contact не найден');
 
       const contactMeta = await getMetaSet('Contacts');
       const soMeta = await getMetaSet('SalesOrders');
@@ -384,55 +486,46 @@ const UI = {
       const mailing = readMappedValues(contact, mailMap, contactMeta);
       const other = readMappedValues(contact, otherMap, contactMeta);
 
-      const payload = Object.assign(
-        {},
-        buildPayloadFromLogical(billMap, mailing, soMeta, { includeEmpty: false }),
-        buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false })
-      );
-
-      // Business rule: Mailing→Billing always; Other→Shipping;
-      // if Other empty → Mailing also goes to Shipping (parcels ship via Shipping).
-      const shipFromOther = buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false });
-      if (Object.keys(shipFromOther).length === 0) {
-        Object.assign(payload, buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false }));
+      // Business rule:
+      // 1) Mailing → Billing
+      // 2) Other → Shipping
+      // 3) if Other empty → Mailing → Billing AND Shipping
+      const billPayload = buildPayloadFromLogical(billMap, mailing, soMeta, { includeEmpty: false });
+      let shipPayload = buildPayloadFromLogical(shipMap, other, soMeta, { includeEmpty: false });
+      let shipSource = 'other';
+      if (Object.keys(shipPayload).length === 0) {
+        shipPayload = buildPayloadFromLogical(shipMap, mailing, soMeta, { includeEmpty: false });
+        shipSource = 'mailing(fallback)';
       }
+      const payload = Object.assign({}, billPayload, shipPayload);
 
       if (!Object.keys(payload).length) {
-        setStatus('Contact has no mailing/other address fields to copy.', 'error');
+        setStatus('У Contact пустые Mailing/Other — копировать нечего.', 'error');
         return;
       }
 
-      // Fill widget UI from mailing (or current target)
-      const uiVals = getTarget() === 'shipping'
-        ? (Object.keys(other).length ? other : mailing)
-        : mailing;
-      if (UI.streetHe) UI.streetHe.value = uiVals.street_he || '';
-      if (UI.streetEn) UI.streetEn.value = uiVals.street_en || '';
-      if (UI.cityHe) UI.cityHe.value = uiVals.city_he || '';
-      if (UI.cityEn) UI.cityEn.value = uiVals.city_en || '';
-      if (UI.house) UI.house.value = uiVals.house || '';
-      if (UI.zip) UI.zip.value = uiVals.zip || '';
-      if (UI.entryHe) UI.entryHe.value = uiVals.entry_he || '';
-      if (UI.entryEn) UI.entryEn.value = uiVals.entry_en || '';
-      if (UI.apt) UI.apt.value = uiVals.apt || '';
-      if (UI.country) UI.country.value = uiVals.country || '';
-      setApproveEnabled();
+      applyLogicalToUI(Object.keys(mailing).length ? mailing : other);
 
-      console.log('Naymark copy payload', payload);
-      await populateZoho(payload);
-      setStatus(
-        `Copied ${Object.keys(payload).length} fields from Contact (${lookupField}). F5 if card looks empty.`,
-        'ok'
-      );
+      const { method } = await writeCopyPayload(payload);
+      const msg =
+        `OK: скопировано ${Object.keys(payload).length} полей из Contact (${lookupField}).\n` +
+        `Billing ← mailing (${Object.keys(billPayload).length}), ` +
+        `Shipping ← ${shipSource} (${Object.keys(shipPayload).length}).\n` +
+        `Способ: ${method}.` +
+        (method === 'updateRecord' ? ' Если карточка пустая — F5.' : ' Проверьте поля формы заказа.');
+      setStatus(msg, 'ok');
 
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 700));
       try {
-        if (ZOHO?.CRM?.UI?.Popup?.closeReload) return await ZOHO.CRM.UI.Popup.closeReload();
+        if (method === 'updateRecord' && ZOHO?.CRM?.UI?.Popup?.closeReload) {
+          try { return await ZOHO.CRM.UI.Popup.closeReload(); } catch (_) {}
+        }
         if (ZOHO?.CRM?.UI?.Popup?.close) return await ZOHO.CRM.UI.Popup.close();
+        if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
       } catch (_) {}
     } catch (e) {
       console.error(e);
-      setStatus('Copy failed: ' + (e && e.message ? e.message : e), 'error');
+      setStatus('Copy failed:\n' + (e && e.message ? e.message : e), 'error');
     }
   }
 
@@ -1000,6 +1093,8 @@ const UI = {
   }
 
   function initAutocomplete() {
+    if (window.NAYMARK_SKIP_GOOGLE) return;
+    if (!UI.search) return;
     if (!window.google || !google.maps || !google.maps.places) {
       setStatus('Google Maps not loaded.', 'error');
       return;
@@ -1166,10 +1261,13 @@ const UI = {
       const ent = apiEntity(getEntity());
       console.log('Naymark PageLoad', pageLoadData, 'recordId=', rid, 'entity=', ent, 'ctx=', ctx);
 
-      // Dedicated Copy widget / button: Mailing→Billing, Other→Shipping
-      // (if Other empty → Mailing into both). Auto-run so one click on CRM button is enough.
-      if (ctx.mode === 'copy' && rid && normalizeModule(getEntity()) === 'SalesOrders') {
-        setStatus('Copy mode: Mailing→Billing, Other→Shipping (else Mailing→both)...', 'info');
+      // Copy widget (widget_copy.html / NAYMARK_MODE=copy): always auto-run.
+      // Works on Details (updateRecord) and Create/Clone (populate), if Contact is known.
+      if (ctx.mode === 'copy') {
+        setStatus(
+          'Copy mode: Mailing→Billing, Other→Shipping.\nЕсли Other пустой — Mailing в обе части…',
+          'info'
+        );
         copyAddressFromContact();
         return;
       }
