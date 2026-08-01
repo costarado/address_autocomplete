@@ -104,6 +104,19 @@ async function enrichAddressPayload(payload, env = process.env) {
       return { payload: { ...payload, ...input }, meta };
     }
 
+    // Guard against fuzzy/prefix resolvers matching a longer similar street
+    // e.g. ראובן  vs  ראובן ובת שבע
+    if (
+      row.street_name &&
+      trimStr(row.street_name) !== input.street
+    ) {
+      meta.reason = "street_mismatch";
+      meta.ref_street = row.street_name;
+      meta.ref_city = row.location_name || null;
+      meta.ref_zip = refZip;
+      return { payload: { ...payload, ...input }, meta };
+    }
+
     meta.hit = true;
     meta.ref_zip = refZip;
     meta.ref_zip5 = zip5 || null;

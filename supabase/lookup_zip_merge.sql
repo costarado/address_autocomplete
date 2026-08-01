@@ -1,5 +1,7 @@
 -- RPC over existing public.zip_merge (do NOT recreate cities/streets).
--- Run this in Supabase SQL Editor, then enable ADDRESS_REF_ENABLED in Netlify.
+-- IMPORTANT: match street_name EXACTLY. Prefix/fuzzy match confuses
+--   ראובן  vs  ראובן ובת שבע  (wrong ZIP 7535714 instead of 7524527).
+-- Run this in Supabase SQL Editor after changes.
 
 create or replace function public.lookup_zip_merge(
   p_city text,
@@ -46,6 +48,7 @@ as $$
   from public.zip_merge z
   cross join norm n
   where z."location_name" = n.city
+    -- Exact street only (no LIKE / starts-with).
     and z.street_name = n.street
     and (
       n.house_pad is null
@@ -60,5 +63,9 @@ $$;
 revoke all on function public.lookup_zip_merge(text, text, text) from public;
 grant execute on function public.lookup_zip_merge(text, text, text) to service_role;
 
--- Smoke test (expect zip7 = 7765137):
--- select * from public.lookup_zip_merge('אשדוד', 'הלל', '9');
+-- Correct:
+--   select * from public.lookup_zip_merge('ראשון לציון', 'ראובן', '11');
+--   -> zip7 7524527, street ראובן
+-- Wrong street (similar name):
+--   select * from public.lookup_zip_merge('ראשון לציון', 'ראובן ובת שבע', '11');
+--   -> zip7 7535714 / 7535713 / 7535715 depending on entrance rows
