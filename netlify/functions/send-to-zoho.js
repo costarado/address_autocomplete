@@ -1,3 +1,5 @@
+const { enrichAddressPayload } = require("./lib/address-ref");
+
 exports.handler = async (event) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -32,6 +34,20 @@ exports.handler = async (event) => {
       ZOHO_ACCOUNTS_DOMAIN,
     } = process.env;
 
+    const { payload: address, meta: addressRef } = await enrichAddressPayload(
+      payload,
+      process.env
+    );
+
+    console.log(
+      "address_ref",
+      JSON.stringify({
+        recordId,
+        addressType,
+        ...addressRef,
+      })
+    );
+
     // refresh token
     const tokenResp = await fetch(`${ZOHO_ACCOUNTS_DOMAIN}/oauth/v2/token`, {
       method: "POST",
@@ -57,13 +73,13 @@ exports.handler = async (event) => {
 
     const data = {};
     if (addressType === "mailing") {
-      data.Mailing_Street = payload.street || "";
-      data.Mailing_City = payload.city || "";
-      data.Mailing_Zip = payload.zip || "";
+      data.Mailing_Street = address.street || "";
+      data.Mailing_City = address.city || "";
+      data.Mailing_Zip = address.zip || "";
     } else if (addressType === "other") {
-      data.Other_Street = payload.street || "";
-      data.Other_City = payload.city || "";
-      data.Other_Zip = payload.zip || "";
+      data.Other_Street = address.street || "";
+      data.Other_City = address.city || "";
+      data.Other_Zip = address.zip || "";
     }
 
     const resp = await fetch(
@@ -79,11 +95,19 @@ exports.handler = async (event) => {
     );
 
     const result = await resp.json();
+    const debug =
+      String(process.env.ADDRESS_REF_DEBUG || "").toLowerCase() === "true";
 
     return {
       statusCode: resp.ok ? 200 : resp.status,
-      headers,
-      body: JSON.stringify(result),
+      headers: {
+        ...headers,
+        "X-Address-Ref-Hit": addressRef.hit ? "1" : "0",
+        "X-Address-Ref-Reason": addressRef.reason || "",
+      },
+      body: JSON.stringify(
+        debug ? { zoho: result, address_ref: addressRef, saved: data } : result
+      ),
     };
   } catch (e) {
     return {
