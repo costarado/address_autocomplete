@@ -926,21 +926,41 @@ const UI = {
       await populateZoho(payload);
       setStatus(onDetail ? 'Saved to record. Reloading...' : 'Populated. Closing...', 'ok');
 
-      // close popup safely; on Detail reload parent so user does not need F5
+      // Detail: closeReload alone often does NOT refresh field values.
+      // Force reopen the same record (same effect as F5 on the card).
       try {
-        if (onDetail && ZOHO?.CRM?.UI?.Popup?.closeReload) {
-          return ZOHO.CRM.UI.Popup.closeReload();
+        if (onDetail) {
+          const rid = getRecordId();
+          // small delay so CRM finishes commit before UI reload
+          await new Promise((r) => setTimeout(r, 350));
+
+          if (rid && ZOHO?.CRM?.UI?.Record?.open) {
+            try {
+              console.log('Naymark: Record.open reload', entity, rid);
+              await ZOHO.CRM.UI.Record.open({ Entity: entity, RecordID: rid });
+            } catch (e) {
+              console.warn('Naymark: Record.open failed', e);
+            }
+          }
+
+          // Prefer closeReload after open; fall back to close
+          if (ZOHO?.CRM?.UI?.Popup?.closeReload) {
+            try { return await ZOHO.CRM.UI.Popup.closeReload(); } catch (_) {}
+          }
+          if (ZOHO?.CRM?.UI?.Popup?.close) {
+            try { return await ZOHO.CRM.UI.Popup.close(); } catch (_) {}
+          }
+          if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
+          if (ZOHO?.embeddedApp?.close) return ZOHO.embeddedApp.close();
+          return;
         }
-        if (onDetail && getRecordId() && ZOHO?.CRM?.UI?.Record?.open) {
-          try {
-            if (ZOHO?.CRM?.UI?.Popup?.close) await ZOHO.CRM.UI.Popup.close();
-          } catch (_) {}
-          return ZOHO.CRM.UI.Record.open({ Entity: entity, RecordID: getRecordId() });
-        }
+
         if (ZOHO?.CRM?.UI?.Popup?.close) return ZOHO.CRM.UI.Popup.close();
         if (ZOHO?.CRM?.UI?.closePopup) return ZOHO.CRM.UI.closePopup();
         if (ZOHO?.embeddedApp?.close) return ZOHO.embeddedApp.close();
-      } catch (_) {}
+      } catch (e) {
+        console.warn('Naymark: close/reload failed', e);
+      }
     } catch (e) {
       console.error(e);
       setStatus('Approve failed. Check console.', 'error');
