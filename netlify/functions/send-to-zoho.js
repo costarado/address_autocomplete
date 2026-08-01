@@ -133,16 +133,20 @@ exports.handler = async (event) => {
     );
 
     const streetWithHouse = buildStreet(address);
-    const data = { House: trimEnv(address.house) };
+    const house = trimEnv(address.house);
+    const data = {};
 
     if (addressType === "mailing") {
       data.Mailing_Street = streetWithHouse;
       data.Mailing_City = trimEnv(address.city);
       data.Mailing_Zip = trimEnv(address.zip);
+      data.House = house;
     } else {
       data.Other_Street = streetWithHouse;
       data.Other_City = trimEnv(address.city);
       data.Other_Zip = trimEnv(address.zip);
+      // Custom field in this CRM org (not standard House)
+      data.Other_House = house;
     }
 
     const zohoUrl = `${apiDomain}/crm/v2/Contacts/${recordId}`;
