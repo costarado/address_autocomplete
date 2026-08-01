@@ -16,13 +16,12 @@ function isZohoRecordId(value) {
   return /^\d{10,25}$/.test(String(value || "").trim());
 }
 
-function buildStreet(address) {
-  const street = trimEnv(address.street);
-  const house = trimEnv(address.house);
-  if (street && house && !street.includes(house)) {
-    return `${street} ${house}`.trim();
+function pick(address, keys) {
+  for (const key of keys) {
+    const value = trimEnv(address?.[key]);
+    if (value) return value;
   }
-  return street;
+  return "";
 }
 
 exports.handler = async (event) => {
@@ -132,21 +131,34 @@ exports.handler = async (event) => {
       ""
     );
 
-    const streetWithHouse = buildStreet(address);
+    const street = trimEnv(address.street);
+    const city = trimEnv(address.city);
+    const zip = trimEnv(address.zip);
     const house = trimEnv(address.house);
+    const streetEn = pick(address, [
+      "street_en",
+      "street_e",
+      "streetEn",
+      "Street_E",
+    ]);
+    const cityEn = pick(address, ["city_en", "city_e", "cityEn", "City_E"]);
     const data = {};
 
+    // Write only the selected target block — never copy mailing <-> other.
     if (addressType === "mailing") {
-      data.Mailing_Street = streetWithHouse;
-      data.Mailing_City = trimEnv(address.city);
-      data.Mailing_Zip = trimEnv(address.zip);
+      data.Mailing_Street = street;
+      data.Mailing_City = city;
+      data.Mailing_Zip = zip;
       data.House = house;
+      if (streetEn) data.Mailing_Street_E = streetEn;
+      if (cityEn) data.Mailing_City_E = cityEn;
     } else {
-      data.Other_Street = streetWithHouse;
-      data.Other_City = trimEnv(address.city);
-      data.Other_Zip = trimEnv(address.zip);
-      // Custom field in this CRM org (not standard House)
+      data.Other_Street = street;
+      data.Other_City = city;
+      data.Other_Zip = zip;
       data.Other_House = house;
+      if (streetEn) data.Other_Street_E = streetEn;
+      if (cityEn) data.Other_City_E = cityEn;
     }
 
     const zohoUrl = `${apiDomain}/crm/v2/Contacts/${recordId}`;
