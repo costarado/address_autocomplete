@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Naymark Widget (Universal)</title>
+
+  <style>
+    body { font-family: Segoe UI, Arial, sans-serif; margin: 14px; background: #f6f7f9; }
+    #container { display: flex; flex-direction: column; gap: 10px; background: white; padding: 16px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .col { flex: 1; min-width: 220px; }
+    label { font-size: 12px; color: #465; display:block; margin:0 0 6px; }
+    input, select, button { width:100%; box-sizing:border-box; padding:10px 10px; border:1px solid #d6d9de; border-radius:10px; background:#fff; font-size: 14px; }
+    button { border:0; background:#1f6fff; color:#fff; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    #status { font-size: 12px; color:#3a4a6a; }
+    .hint { font-size: 11px; color:#7a8899; margin-top:4px; }
+  </style>
+
+  <script src="https://live.zwidgets.com/js-sdk/1.5/ZohoEmbededAppSDK.min.js"></script>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDAL5Dl_ZM0vyNkrn1fFw3b6Jhzek_MZxU&libraries=places&region=IL&language=he"></script>
+
+  <script>
+    // shared config for main.js
+    window.NAYMARK_GOOGLE_KEY = "AIzaSyDAL5Dl_ZM0vyNkrn1fFw3b6Jhzek_MZxU";
+    window.NAYMARK_DEFAULT_LANG_UI = "he";
+
+    // Optional ZIP fallback (Supabase)
+    // If Google doesn't return a postal code, the widget can query Supabase as a fallback.
+    // Set these values ONLY if you want Supabase ZIP lookup enabled.
+    // Example:
+    //   window.NAYMARK_SUPABASE_URL = "https://xxxx.supabase.co";
+    //   window.NAYMARK_SUPABASE_ANON_KEY = "<anon key>";
+    //   window.NAYMARK_SUPABASE_ZIP_TABLE = "zipcodes"; // or use NAYMARK_SUPABASE_ZIP_RPC
+    window.NAYMARK_SUPABASE_URL = window.NAYMARK_SUPABASE_URL || "https://lnjdhdllyyftposkjdqh.supabase.co";
+    window.NAYMARK_SUPABASE_ANON_KEY = window.NAYMARK_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuamRoZGxseXlmdHBvc2tqZHFoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MzEzOTQsImV4cCI6MjA4MjUwNzM5NH0.rBVoroUxajdTiXcs_b_OEvhYfmchSaa_8r6X0GROHos";
+    window.NAYMARK_SUPABASE_ZIP_RPC = window.NAYMARK_SUPABASE_ZIP_RPC || "resolve_il_zip";
+    window.NAYMARK_SUPABASE_ZIP_TABLE = window.NAYMARK_SUPABASE_ZIP_TABLE || "";
+    // Optional: override column names (defaults: city_he, street_he, house, zip)
+    // window.NAYMARK_SUPABASE_ZIP_COL_CITY = "city_he";
+    // window.NAYMARK_SUPABASE_ZIP_COL_STREET = "street_he";
+    // window.NAYMARK_SUPABASE_ZIP_COL_HOUSE = "house";
+    // window.NAYMARK_SUPABASE_ZIP_COL_ZIP = "zip";
+  </script>
+</head>
+<body>
+  <div id="container">
+    <div class="row">
+      <div class="col">
+        <label>Module</label>
+        <select id="moduleSelect"></select>
+      </div>
+      <div class="col">
+        <label>Target</label>
+        <select id="targetSelect"></select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label>Address Search</label>
+        <input id="search" type="text" placeholder="Type address, pick suggestion or press Enter" autocomplete="off" />
+        <div class="hint">Enter/Blur works even without clicking a suggestion.</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>Street (HE)</label><input id="street_he" type="text" /></div>
+      <div class="col"><label>Street (E)</label><input id="street_en" type="text" /></div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>City (HE)</label><input id="city_he" type="text" /></div>
+      <div class="col"><label>City (E)</label><input id="city_en" type="text" /></div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>House</label><input id="house" type="text" /></div>
+      <div class="col"><label>ZIP</label><input id="zip" type="text" /></div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>Entry (HE)</label><input id="entry_he" type="text" placeholder="manual" /></div>
+      <div class="col"><label>Entry (E)</label><input id="entry_en" type="text" placeholder="manual" /></div>
+    </div>
+
+    <div class="row">
+      <div class="col"><label>Apt</label><input id="apt" type="text" placeholder="manual" /></div>
+      <div class="col"><label>Country</label><input id="country" type="text" /></div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <button id="btn_approve" disabled>Approve and Close</button>
+      </div>
+    </div>
+
+    <div id="status">Ready</div>
+  </div>
+
+  <script src="FIELD_LIBRARY.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
