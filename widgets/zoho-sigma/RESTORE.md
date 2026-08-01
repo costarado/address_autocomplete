@@ -1,21 +1,21 @@
-# Restore / Detail fix upload
+# Upload instructions (read this)
 
-## Index Page in Zoho
-Use exactly: `widget.html`  
-(not `app/widget.html` — Zoho saves only without `app/`)
+## Use ONLY this file
+`Naymark_MAILING_USE_THIS.zip`
 
-## Recommended zip for your Zoho UI
-`Naymark_Contacts_Mailing_Resol_DETAIL_FIX_FLAT.zip`
+## Zip structure (required for Zoho hosting)
+```
+app/widget.html
+app/FIELD_LIBRARY.js
+app/main.js
+plugin-manifest.json
+```
 
-Contains at zip root:
-- widget.html
-- FIELD_LIBRARY.js
-- main.js
+## Zoho Widget settings
+- Index / Start page: `widget.html`  ← WITHOUT `app/`
+  (Zoho looks inside `app/` automatically)
+- Save → Publish
+- CRM: Ctrl+F5 → Find_Address
 
-## Sigma-style zip (also ok if Zoho accepts it)
-`Naymark_Contacts_Mailing_Resol_DETAIL_FIX.zip` with `app/` + `plugin-manifest.json`  
-Index still: `widget.html`
-
-## After publish
-Status should show: `Ready. Detail save ON (id …)`  
-Then search → Approve → contact mailing fields persist.
+## Do NOT upload flat zips
+Zips with files only at root (`widget.html` next to zip root) cause **Page Not Found**.
